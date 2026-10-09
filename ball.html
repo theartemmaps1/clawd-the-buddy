@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'" />
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; user-select: none; }
+  #ball { width: 56px; height: 56px; display: block; shape-rendering: crispEdges; cursor: grab; touch-action: none; }
+  #ball:active { cursor: grabbing; }
+</style>
+</head>
+<body>
+  <svg id="ball" viewBox="0 0 14 14">
+    <rect x="4" y="1" width="6" height="12" fill="#e0483c" />
+    <rect x="2" y="2" width="10" height="10" fill="#e0483c" />
+    <rect x="1" y="4" width="12" height="6" fill="#e0483c" />
+    <rect x="1" y="6" width="12" height="2" fill="#fffdf5" />
+    <rect x="6" y="1" width="2" height="12" fill="#fffdf5" />
+    <rect x="4" y="3" width="2" height="2" fill="#ff8a7a" />
+  </svg>
+<script src="ball.js"></script>
+</body>
+</html>
