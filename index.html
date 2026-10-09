@@ -106,6 +106,30 @@
   .fx-land .dust-l { animation: puffL .45s ease-out; }
   .fx-land .dust-r { animation: puffR .45s ease-out; }
 
+  /* seasons, holidays and the focus timer's hourglass */
+  .season-item, .hourglass { display: none; }
+  body[data-season="winter"] .scarf, body[data-season="spring"] .flower, body[data-season="autumn"] .leaf { display: block; }
+  body[data-season="summer"].idle:not([class*="fx-"]):not([class*="mood-"]):not(.night) .shades { display: block; }
+  body[data-holiday="santa"] .santa, body[data-holiday="pumpkin"] .pumpkin { display: block; }
+  body[data-holiday="santa"] .hat { display: none; }
+  .night .santa, .fx-sleep .shades { display: none !important; }
+  body[data-focus="1"] .hourglass { display: block; }
+  body[data-focus="1"] .hourglass .sand { animation: trickle 2s steps(4) infinite; }
+
+  /* sticky note, and the box for writing one */
+  #note {
+    position: absolute; right: 6px; bottom: 118px; width: 74px; max-height: 74px; overflow: hidden; padding: 5px 6px;
+    background: #ffe873; color: #3a2f00; font-size: 10px; line-height: 1.25; word-break: break-word;
+    box-shadow: 0 2px 5px rgba(0,0,0,.3); transform: rotate(3deg); cursor: pointer; display: none;
+  }
+  #note.show { display: block; }
+  #noteInput {
+    position: absolute; left: 14px; right: 14px; top: 8px; display: none; box-sizing: border-box;
+    font: 12px system-ui, sans-serif; padding: 6px 8px; border: 2px solid #d97757; border-radius: 8px; outline: none;
+    background: #fff; color: #222; user-select: text;
+  }
+  #noteInput.show { display: block; }
+
   /* confetti for unlocks and big finishes */
   #confetti { position: absolute; left: 50%; bottom: 110px; width: 0; height: 0; pointer-events: none; }
   #confetti i { position: absolute; width: 6px; height: 6px; animation: burst 1.3s ease-out forwards; }
@@ -186,6 +210,7 @@
   .mini.alert .mskin { filter: saturate(1.35) brightness(1.08) hue-rotate(-8deg); }
   .mini.sad .mskin   { filter: saturate(.45); }
 
+  @keyframes trickle { 0% { opacity: 1 } 100% { opacity: .35 } }
   @keyframes dot     { 0%,100% { opacity: 0; transform: translateY(4px) } 40%,60% { opacity: .95; transform: translateY(0) } }
   @keyframes yawn    { 0%,100% { transform: scale(1,1) } 30%,70% { transform: scale(.97,1.08) } }
   @keyframes gape    { 0%,100% { opacity: 0 } 25%,75% { opacity: 1 } }
@@ -217,6 +242,8 @@
 <body class="idle">
   <div id="minis"></div>
   <div id="confetti"></div>
+  <div id="note" title="Click when it's done"></div>
+  <input id="noteInput" maxlength="80" spellcheck="false" />
   <div id="bubble"></div>
   <svg id="buddy" viewBox="0 0 200 200">
     <g id="wrap">
@@ -247,6 +274,34 @@
       <rect class="mouth ghost" x="93" y="104" width="14" height="13" />
       <rect class="dust dust-l ghost" x="38" y="154" width="10" height="8" /><rect class="dust dust-r ghost" x="152" y="154" width="10" height="8" />
       <g class="dots ghost"><rect x="150" y="46" width="7" height="7" /><rect x="163" y="36" width="9" height="9" /><rect x="178" y="22" width="12" height="12" /></g>
+
+      <!-- seasonal things -->
+      <g class="season-item scarf ghost">
+        <rect x="40" y="112" width="120" height="10" fill="#d9423a" /><rect x="60" y="112" width="10" height="10" fill="#f4f1ea" /><rect x="100" y="112" width="10" height="10" fill="#f4f1ea" />
+        <rect x="140" y="112" width="10" height="10" fill="#f4f1ea" /><rect x="128" y="122" width="14" height="22" fill="#d9423a" /><rect x="128" y="138" width="14" height="4" fill="#f4f1ea" />
+      </g>
+      <g class="season-item shades ghost">
+        <rect x="60" y="79" width="30" height="15" fill="#1a1a22" /><rect x="110" y="79" width="30" height="15" fill="#1a1a22" /><rect x="90" y="83" width="20" height="4" fill="#1a1a22" />
+        <rect x="64" y="82" width="7" height="3" fill="#7aa0ff" /><rect x="114" y="82" width="7" height="3" fill="#7aa0ff" />
+      </g>
+      <g class="season-item flower ghost">
+        <rect x="178" y="140" width="4" height="22" fill="#3f9a4a" /><rect x="172" y="128" width="16" height="12" fill="#ff8ac0" /><rect x="177" y="131" width="6" height="6" fill="#ffd84a" />
+      </g>
+      <g class="season-item leaf ghost">
+        <rect x="8" y="154" width="18" height="8" fill="#d9822b" /><rect x="12" y="150" width="10" height="4" fill="#e39a3b" /><rect x="24" y="159" width="7" height="2" fill="#8a5a2b" />
+      </g>
+      <g class="season-item pumpkin ghost">
+        <rect x="2" y="140" width="32" height="22" fill="#e8822a" /><rect x="6" y="136" width="24" height="4" fill="#e8822a" /><rect x="15" y="130" width="6" height="6" fill="#3f9a4a" />
+        <rect x="8" y="146" width="6" height="5" fill="#3a1d08" /><rect x="22" y="146" width="6" height="5" fill="#3a1d08" /><rect x="10" y="154" width="16" height="3" fill="#3a1d08" />
+      </g>
+      <g class="season-item santa ghost">
+        <rect x="56" y="50" width="88" height="10" fill="#f4f1ea" /><rect x="66" y="36" width="68" height="14" fill="#d9423a" /><rect x="84" y="24" width="44" height="12" fill="#d9423a" />
+        <rect x="120" y="28" width="24" height="10" fill="#d9423a" /><rect x="140" y="30" width="14" height="14" fill="#f4f1ea" />
+      </g>
+      <g class="hourglass ghost">
+        <rect x="4" y="72" width="24" height="4" fill="#8a5a2b" /><rect x="4" y="106" width="24" height="4" fill="#8a5a2b" /><rect x="8" y="76" width="16" height="30" fill="#dff3ff" />
+        <rect x="11" y="78" width="10" height="8" fill="#f2c230" /><rect class="sand" x="14" y="86" width="4" height="8" fill="#f2c230" /><rect x="10" y="97" width="12" height="9" fill="#f2c230" />
+      </g>
 
       <!-- worn at night, over whatever hat is on -->
       <g class="nightcap ghost">

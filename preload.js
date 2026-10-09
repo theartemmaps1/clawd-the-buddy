@@ -3,6 +3,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 const on = (channel) => (cb) => ipcRenderer.on(channel, (_e, data) => cb(data));
 
 contextBridge.exposeInMainWorld('buddy', {
+  // what it remembered last time, read once before the page starts
+  saved: ipcRenderer.sendSync('buddy-memory-load'),
+  save: (key, value) => ipcRenderer.send('buddy-memory-save', String(key), value),
+
   onEvent: on('claude-event'),
   onCursor: on('buddy-cursor'),
   onWalkDone: on('buddy-walk-done'),
@@ -18,6 +22,12 @@ contextBridge.exposeInMainWorld('buddy', {
   onBall: on('buddy-ball'),
   onBatted: on('buddy-batted'),
   onContext: on('buddy-context'),
+  onPomodoro: on('buddy-pomodoro'),
+  onNoteEdit: on('buddy-note-edit'),
+  onGoodbye: on('buddy-goodbye'),
+
+  pomodoroEnded: () => ipcRenderer.send('buddy-pomodoro-ended'),
+  goBed: () => ipcRenderer.send('buddy-go-bed'),
 
   ignoreMouse: (ignore) => ipcRenderer.send('buddy-ignore-mouse', !!ignore),
   drag: (active) => ipcRenderer.send('buddy-drag', !!active),

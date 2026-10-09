@@ -10,17 +10,23 @@ let fx = ''; // short-lived reaction layered on top of the hook-driven state
 let prop = ''; // what it holds while Claude works: laptop, book, magnifier, hardhat, globe
 let lastActivity = Date.now();
 
+// Everything it remembers (tasks, streaks, feelings) is kept by the main process in a file,
+// which survives the app being killed. localStorage is only read to carry over older saves.
+const saved = window.buddy.saved || {};
+
 function load(key, fallback) {
+  const v = saved[key];
+  if (v && typeof v === 'object') return v;
   try {
-    const v = JSON.parse(localStorage.getItem(key) || 'null');
-    return v && typeof v === 'object' ? v : fallback;
+    const old = JSON.parse(localStorage.getItem(key) || 'null');
+    return old && typeof old === 'object' ? old : fallback;
   } catch {
     return fallback;
   }
 }
 
 function store(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+  window.buddy.save(key, value);
 }
 
 // Timings and thresholds. config.json next to the app overrides any of these.
@@ -36,7 +42,22 @@ const CFG = {
   wanderCooldownSec: 60,
   contextWindow: 200000, // tokens; set 1000000 for a 1M-context model
   contextWarnAt: [70, 85, 95], // percent
+  focusMinutes: 25,
+  focusBreakMinutes: 5,
+  seasons: 1, // 0 = no seasonal decorations
+  southern: 0, // 1 = southern hemisphere seasons
 };
+
+let persona = 'cheerful'; // cheerful | sarcastic | shy | dramatic
+let focusUntil = 0; // focus timer: when it ends (0 = not running)
+let breakUntil = 0;
+let breakNagged = false;
+let bedOn = false;
+let goingToBed = false;
+let bedTried = false;
+let editingNote = false;
+let lastNuzzle = 0;
+let foodDragAt = 0; // last time something was being dragged over the window
 
 // Feelings build up from what happens to it and fade over time; the strongest one is its mood.
 const feel = { joy: 0.2, energy: 1, irritation: 0, lonely: 0, worry: 0, hunger: 0.3 };
@@ -47,7 +68,22 @@ const MOODLESS_FX = ['pet', 'spin', 'sleep', 'dizzy', 'hop', 'fly', 'fall', 'eat
 
 const clip = (s, n = 60) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s || '');
 const base = (p) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : '');
-const pick = (a) => a[Math.floor(Math.random() * a.length)];
+// Random, but never one of the last few things it said from the same list.
+const recentPicks = new Map();
+function pick(a) {
+  if (a.length < 2) return a[0];
+  const key = a.length + '|' + a[0];
+  const used = recentPicks.get(key) || [];
+  let i = 0;
+  for (let tries = 0; tries < 24; tries++) {
+    i = Math.floor(Math.random() * a.length);
+    if (!used.includes(i)) break;
+  }
+  used.push(i);
+  while (used.length > Math.min(4, a.length - 1)) used.shift();
+  recentPicks.set(key, used);
+  return a[i];
+}
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const hour = () => new Date().getHours();
 const isNight = () => {
@@ -61,6 +97,7 @@ function render() {
   const sleepy = isNight() && (state === 'idle' || state === 'thinking');
   document.body.className = state + (fx ? ' fx-' + fx : '') + (showMood ? ' mood-' + mood : '') + (sleepy ? ' night' : '');
   document.body.dataset.prop = state === 'working' ? prop : '';
+  document.body.dataset.focus = focusUntil ? '1' : '';
 }
 
 function setState(name) {
@@ -320,8 +357,14 @@ const todayKey = () => dateKey(new Date());
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
 const newDay = () => ({ date: todayKey(), tasks: 0, fails: 0, tools: 0, longestMs: 0, longestTools: 0, snacks: 0, pokes: 0, greeted: false });
 let day = { ...newDay(), ...load('buddy-day', {}) };
-const life = { tasks: 0, hat: '', color: 'classic', ...load('buddy-life', {}) };
+const life = { tasks: 0, hat: '', color: 'classic', bond: 0, lastSeen: '', note: '', badges: {}, stats: {}, exts: [], ...load('buddy-life', {}) };
 if (!Number.isFinite(life.tasks) || life.tasks < 0) life.tasks = 0;
+if (!Number.isFinite(life.bond) || life.bond < 0) life.bond = 0;
+if (!life.badges || typeof life.badges !== 'object') life.badges = {};
+if (!life.stats || typeof life.stats !== 'object') life.stats = {};
+if (!Array.isArray(life.exts)) life.exts = [];
+if (typeof life.note !== 'string') life.note = '';
+const saveLife = () => store('buddy-life', life);
 const history = load('buddy-history', {}); // date -> tasks finished that day
 
 function rollDay() {
@@ -381,7 +424,10 @@ function applyLook() {
   document.body.style.setProperty('--skin', color.hex);
   store('buddy-life', life);
   const item = (u) => ({ id: u.id, label: u.label, at: u.at, unlocked: unlocked(u) });
-  window.buddy.wardrobe({ tasks: life.tasks, hat: life.hat, color: life.color, hats: HATS.map(item), colors: COLORS.map(item) });
+  window.buddy.wardrobe({
+    tasks: life.tasks, hat: life.hat, color: life.color, hats: HATS.map(item), colors: COLORS.map(item),
+    badges: BADGES.map((b) => ({ label: `${b.name} (${b.hint})`, earned: !!life.badges[b.id] })),
+  });
 }
 
 // A finished task may cross a threshold; the newest thing gets put on straight away.
@@ -400,7 +446,7 @@ window.buddy.onWear((w) => {
   applyLook();
   touch();
   setFx('spin', 700);
-  say(pick(['How do I look?', 'Ooh, fancy.', 'Very me.']), 2500);
+  say(pick(['How do I look?', 'Ooh, fancy.', 'Very me.', 'Stylish, right?', 'New look, same me.', 'Fashion!']), 2500);
 });
 
 const span = (ms) => (ms < 90000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60000)} min`);
@@ -423,6 +469,266 @@ window.buddy.onAskDay(() => {
   say(dayReport(), 9000);
 });
 
+// ---- friendship: grows with attention, fades a little when ignored for days ----
+
+const BOND_AT = [0, 10, 30, 70, 150];
+const BOND_NAMES = ['Stranger', 'Acquaintance', 'Friend', 'Good friend', 'Best friend'];
+const BOND_UP = [
+  '',
+  'I think I\'m getting to know you!',
+  'We\'re friends now! Officially.',
+  'You\'re a really good friend, you know.',
+  'Best friends! Forever! No take-backs!',
+];
+const BOND_POKE = {
+  2: ['Hi friend!', 'Oh, it\'s you! Good.', 'Friend poke!'],
+  3: ['My favourite poke.', 'Always nice to see you.', 'There you are!'],
+  4: ['Best friend alert!', 'I\'d know that poke anywhere. ♥', 'You + me = best team.', 'Hi, best friend!'],
+};
+const bondLevel = () => BOND_AT.filter((t) => life.bond >= t).length - 1;
+
+function bondUp(n) {
+  const before = bondLevel();
+  life.bond = Math.min(999, life.bond + n);
+  const level = bondLevel();
+  saveLife();
+  if (level <= before) return;
+  if (level === 4) earn('bestfriends');
+  setTimeout(() => { sfx('level'); confetti(); setFx('pet', 2200); say(BOND_UP[level], 6000); }, 1800);
+}
+
+// once a day: a little closer for showing up, a little cooler after days away
+function visit() {
+  const today = todayKey();
+  if (life.lastSeen === today) return;
+  if (life.lastSeen) {
+    const gap = Math.round((new Date(today) - new Date(life.lastSeen)) / 864e5);
+    if (gap > 2) life.bond = Math.max(0, life.bond - (gap - 2) * 3);
+  }
+  life.lastSeen = today;
+  bondUp(2);
+}
+
+// ---- achievements ----
+
+const BADGES = [
+  { id: 'liftoff', name: 'Liftoff', hint: 'throw it once' },
+  { id: 'frequentflyer', name: 'Frequent flyer', hint: '25 throws' },
+  { id: 'pokeaholic', name: 'Poke-a-holic', hint: '100 pokes' },
+  { id: 'spinner', name: 'Round and round', hint: 'get dizzy 10 times' },
+  { id: 'gourmet', name: 'Gourmet', hint: 'eat 10 kinds of file' },
+  { id: 'ballhog', name: 'Ball hog', hint: '50 bats' },
+  { id: 'windowsitter', name: 'Window sitter', hint: 'land on a window' },
+  { id: 'bestfriends', name: 'Best friends', hint: 'reach the top bond level' },
+  { id: 'centurion', name: 'Centurion', hint: '100 tasks' },
+  { id: 'marathon', name: 'Marathon', hint: 'one task with 50 tool calls' },
+  { id: 'nightowl', name: 'Night owl', hint: 'finish a task after midnight' },
+  { id: 'earlybird', name: 'Early bird', hint: 'finish a task before 7am' },
+  { id: 'weekstreak', name: 'Seven up', hint: '7-day streak' },
+  { id: 'monthstreak', name: 'Unstoppable', hint: '30-day streak' },
+  { id: 'fullhouse', name: 'Full house', hint: '3 sessions at once' },
+  { id: 'greenmachine', name: 'Green machine', hint: '10 passing test runs' },
+  { id: 'committed', name: 'Committed', hint: '25 commits' },
+  { id: 'focused', name: 'Deep focus', hint: 'finish a focus timer' },
+];
+// lifetime counters and the badges they earn: [how many, badge id]
+const COUNT_BADGES = {
+  throws: [[1, 'liftoff'], [25, 'frequentflyer']],
+  pokes: [[100, 'pokeaholic']],
+  dizzy: [[10, 'spinner']],
+  bats: [[50, 'ballhog']],
+  perches: [[1, 'windowsitter']],
+  tests: [[10, 'greenmachine']],
+  commits: [[25, 'committed']],
+};
+
+function earn(id) {
+  const badge = BADGES.find((b) => b.id === id);
+  if (!badge || life.badges[id]) return;
+  life.badges[id] = todayKey();
+  applyLook(); // saves, and refreshes the menu
+  setTimeout(() => { sfx('level'); confetti(26); say(`Achievement unlocked: ${badge.name}!`, 6000); }, 2200);
+}
+
+function tally(key, n = 1) {
+  life.stats[key] = (life.stats[key] || 0) + n;
+  for (const [need, id] of COUNT_BADGES[key] || []) if (life.stats[key] >= need) earn(id);
+  saveLife();
+}
+
+// ---- personalities: each swaps in its own voice for the common reactions ----
+
+const PERSONA = {
+  cheerful: {},
+  sarcastic: {
+    pokeIdle: ['Wow. A poke. Revolutionary.', 'Yes, I\'m still here. Shocking.', 'Oh good, attention.', 'Do you poke all your software?', 'Riveting.', 'Is this what productivity looks like?'],
+    pokeWorking: ['Sure, interrupt. It\'s only work.', 'I\'m busy. Allegedly.', 'Poking won\'t make it compile.'],
+    greet: ['Oh. You again.', 'Another session. Be still my heart.', 'Let me guess: "quick fix"?'],
+    done: ['Done. You\'re welcome.', 'Finished. Try to look surprised.', 'It works. For now.', 'Done. Don\'t touch anything.'],
+    fail: ['Well. That happened.', 'Bold strategy. Didn\'t work.', 'Failed. I\'m shocked. Shocked.', 'Have we tried it working instead?'],
+    pet: ['…fine. That\'s acceptable.', 'I suppose I\'ll allow it.', 'Don\'t make it weird.'],
+    drag: ['Oh sure, just pick me up.', 'I had plans, you know.', 'Unhand me. Or don\'t. Whatever.'],
+    wake: ['I was having a great dream. Thanks.', 'This had better be good.', 'Oh, it\'s you. Naturally.'],
+    muse: ['Another day, another stack trace.', 'I could be a screensaver. But no.', 'Thrilling. Truly.', 'I\'m sure that TODO will fix itself.', 'Living the dream. A small, pixelated dream.'],
+  },
+  shy: {
+    pokeIdle: ['Oh! Um. Hi.', 'Eep. …hello.', 'Was that… for me?', 'S-sorry, was I in the way?', '*hides a little*', 'H-hi…'],
+    pokeWorking: ['Oh! I\'m, um, watching the code.', 'S-sorry, one second…'],
+    greet: ['Oh… hi. You came back.', 'H-hello. I\'ll be over here.', 'Hi… I missed you. A little.'],
+    done: ['Um… I think it\'s done?', 'It\'s finished. I hope that\'s okay.', 'Done… if you want to look.'],
+    fail: ['Oh no… was that my fault?', 'S-sorry. It didn\'t work.', 'Um. That one broke.'],
+    pet: ['Oh… that\'s nice…', '*blushes*', 'Th-thank you…'],
+    drag: ['Eep! W-where are we going?', 'Oh! Okay… gently…', 'Please don\'t drop me…'],
+    wake: ['Mm? Oh… sorry, I dozed off.', 'I-I\'m awake! Sorry!'],
+    muse: ['I hope I\'m not bothering anyone.', 'It\'s nice and quiet…', 'Maybe I\'ll just… stay here.', 'Do you think the cursor likes me?'],
+  },
+  dramatic: {
+    pokeIdle: ['A TOUCH! I am SEEN!', 'You DARE poke me?! …again, please.', 'Gasp!', 'I shall remember this poke FOREVER.', 'The audacity! The delight!'],
+    pokeWorking: ['Silence! Genius at work!', 'Not NOW, the plot thickens!', 'I am in the THROES of creation!'],
+    greet: ['BEHOLD! A new session dawns!', 'At last! My purpose returns!', 'The curtain rises!'],
+    done: ['VICTORY! Glorious victory!', 'It is DONE. Songs will be sung.', 'Triumph! Sound the trumpets!', 'We have conquered the task!'],
+    fail: ['BETRAYAL! Cruel fate!', 'Alas! We are undone!', 'Woe! WOE!', 'The code has forsaken us!'],
+    pet: ['Ahhh, such TENDERNESS!', 'I could weep with joy!', 'Bliss! Pure bliss!'],
+    drag: ['I am ABDUCTED!', 'Unhand me, villain! …wheee!', 'To the SKIES!'],
+    wake: ['WHO DISTURBS MY SLUMBER?!', 'I was dreaming of GLORY!'],
+    muse: ['To code, or not to code…', 'O cursor, cursor, wherefore art thou?', 'What a time to be pixels.', 'I feel… EVERYTHING.', 'Destiny is but one commit away.'],
+  },
+};
+const voice = () => PERSONA[persona] || PERSONA.cheerful;
+
+// ---- lines built from what is actually going on ----
+
+const fileEdits = new Map(); // file name -> edits since the buddy started
+
+function detailLine(e, s) {
+  if (s.taskTools === 25) return '25 tool calls and counting. Big one!';
+  if (s.taskTools === 50) return '50 tool calls! This is a marathon.';
+  if (s.taskTools === 100) return '100 tool calls. Are we okay? We\'re okay.';
+  const file = ['Read', 'Edit', 'Write'].includes(e.tool) ? base(e.detail) : '';
+  if (!file) return null;
+  const ext = ((/\.([a-z0-9]{1,8})$/i.exec(file) || [])[1] || '').toLowerCase();
+  if (ext && !life.exts.includes(ext)) {
+    life.exts.push(ext);
+    if (life.exts.length > 300) life.exts.shift();
+    saveLife();
+    if (life.exts.length > 3) return `Ooh, my first .${ext} file ever!`;
+  }
+  if (e.tool === 'Read') return null;
+  const n = (fileEdits.get(file) || 0) + 1;
+  fileEdits.set(file, n);
+  if (fileEdits.size > 500) fileEdits.clear();
+  if (n === 3) return `Third edit to ${clip(file, 30)}. It's getting there.`;
+  if (n === 6) return `${clip(file, 30)} again? It must be important.`;
+  if (n === 12) return `${n} edits to ${clip(file, 26)}. We live here now.`;
+  return null;
+}
+
+// ---- focus timer: quiet for a while, then it insists on a break ----
+
+window.buddy.onPomodoro((on) => {
+  touch();
+  if (fx === 'sleep') setFx('', 0);
+  if (on) {
+    focusUntil = Date.now() + CFG.focusMinutes * 60000;
+    breakUntil = 0;
+    render();
+    sfx('done');
+    say(`Focus time! ${CFG.focusMinutes} minutes. I'll keep quiet.`, 4000);
+  } else if (focusUntil) {
+    focusUntil = 0;
+    render();
+    say('Focus timer stopped.', 2500);
+  }
+});
+
+function finishFocus() {
+  focusUntil = 0;
+  breakUntil = Date.now() + CFG.focusBreakMinutes * 60000;
+  breakNagged = false;
+  window.buddy.pomodoroEnded();
+  render();
+  bump('joy', 0.2);
+  sfx('level');
+  confetti();
+  setFx('stretch', 2500);
+  say(`${CFG.focusMinutes} minutes done! Break time: ${CFG.focusBreakMinutes} minutes. I insist.`, 10000);
+  earn('focused');
+}
+
+// ---- sticky note: one thing to remember, held up until it is clicked away ----
+
+const noteEl = document.getElementById('note');
+const noteInput = document.getElementById('noteInput');
+
+function showNote() {
+  noteEl.textContent = life.note;
+  noteEl.classList.toggle('show', !!life.note);
+}
+
+noteEl.addEventListener('click', () => {
+  life.note = '';
+  saveLife();
+  showNote();
+  touch();
+  sfx('done');
+  say(pick(['Done! Note cleared.', 'Crossed off!', 'One less thing to remember.']), 2000);
+});
+
+window.buddy.onNoteEdit(() => {
+  touch();
+  if (fx === 'sleep') setFx('', 0);
+  editingNote = true;
+  noteInput.value = life.note;
+  noteInput.classList.add('show');
+  noteInput.focus();
+  say('What should I remember? Enter saves, Esc cancels.', 8000);
+});
+
+function endNoteEdit(keep) {
+  if (!editingNote) return;
+  editingNote = false;
+  noteInput.classList.remove('show');
+  hovering = true; // so the next cursor report re-checks click-through
+  if (!keep) { say('Okay, never mind.', 1500); return; }
+  life.note = noteInput.value.trim().slice(0, 80);
+  saveLife();
+  showNote();
+  say(life.note ? 'Got it. I\'ll hold on to that.' : 'Okay, nothing to remember.', 2500);
+}
+
+noteInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') endNoteEdit(true);
+  else if (e.key === 'Escape') endNoteEdit(false);
+});
+noteInput.addEventListener('blur', () => endNoteEdit(true));
+
+// ---- seasons and holidays, from the date alone ----
+
+function applySeason() {
+  const d = new Date();
+  let month = d.getMonth();
+  const date = d.getDate();
+  const holiday = month === 11 && date >= 18 ? 'santa' : month === 9 && date >= 25 ? 'pumpkin' : '';
+  if (CFG.southern) month = (month + 6) % 12;
+  const season = month === 11 || month <= 1 ? 'winter' : month <= 4 ? 'spring' : month <= 7 ? 'summer' : 'autumn';
+  document.body.dataset.season = CFG.seasons ? season : '';
+  document.body.dataset.holiday = CFG.seasons ? holiday : '';
+}
+
+// ---- goodbye: a send-off with the day's numbers when it is quit from the menu ----
+
+window.buddy.onGoodbye(() => {
+  if (fx === 'sleep') setFx('', 0);
+  rollDay();
+  saveFeel();
+  saveLife();
+  setFx('wave', 3500);
+  sfx('done');
+  say(day.tasks
+    ? `Bye! Today: ${plural(day.tasks, 'task')}, ${plural(day.fails, 'oopsie')}${streak() >= 2 ? `, ${streak()}-day streak` : ''}. See you tomorrow!`
+    : pick(['Bye! See you next time.', 'Off to bed. Bye!']), 5000);
+});
+
 // ---- Claude Code hook events ----
 
 window.buddy.onEvent((e) => {
@@ -442,10 +748,14 @@ window.buddy.onEvent((e) => {
     case 'SessionStart':
       s.state = 'idle';
       bump('joy', 0.3);
+      visit();
+      if (sessions.size >= 3) earn('fullhouse');
+      if (life.note) setTimeout(() => say(`Don't forget: ${life.note}`, 6000), 3200);
       setState('happy');
       tell(wasLonely ? 'You\'re back! I missed you.'
         : isNight() ? '*yawn* Up late, huh? Okay, I\'m in.'
-        : 'Oh hi! Ready when you are.');
+        : bondLevel() >= 3 && Math.random() < 0.5 ? pick(['My favourite human is back!', 'There you are! I saved your spot.'])
+        : pick(voice().greet || ['Oh hi! Ready when you are.', 'Hello hello! What are we doing?', 'A new session! My favourite.', 'Reporting for duty!']));
       backToIdle(2500); break;
 
     case 'UserPromptSubmit':
@@ -453,11 +763,16 @@ window.buddy.onEvent((e) => {
       s.taskStart = Date.now();
       s.taskTools = 0;
       setState('thinking');
+      if (breakUntil && Date.now() < breakUntil && !breakNagged) {
+        breakNagged = true;
+        tell('Hey! It\'s still break time. Shoo! …fine.', 4000);
+        backToIdle(60000); break;
+      }
       tell(mood === 'grumpy' ? 'Fine. What now.'
         : mood === 'tired' ? '*yawn* …okay, one more.'
         : mood === 'worried' ? 'Okay… carefully this time.'
         : mood === 'hungry' ? 'On an empty stomach? …okay.'
-        : pick(['Ooh, a task…', 'Ooh, what are we making?', 'What is it? What is it?']));
+        : pick(['Ooh, a task…', 'Ooh, what are we making?', 'What is it? What is it?', 'Ooh ooh, what is it?', 'Let\'s gooo!', 'On it! Well, Claude is.', 'New task, who dis?']));
       backToIdle(60000); break;
 
     case 'PreToolUse':
@@ -469,13 +784,14 @@ window.buddy.onEvent((e) => {
       if (kind === 'danger') {
         bump('worry', 0.12);
         if (!fx) setFx('peer', 1500);
-        tell(pick(['Eep… careful with that one!', 'That one bites. Double-check?', 'I can\'t look…']) + ` $ ${clip(e.detail, 40)}`, 5000);
+        tell(pick(['Eep… careful with that one!', 'That one bites. Double-check?', 'I can\'t look…', 'Are we sure about this?', 'Measure twice, delete once.']) + ` $ ${clip(e.detail, 40)}`, 5000);
       } else if (kind === 'install') {
-        tell('Ooh, new packages!', 3000);
+        tell(pick(['Ooh, new packages!', 'Presents! Wait, dependencies.', 'node_modules grows stronger.']), 3000);
       } else {
-        const curious = curiousLine(e.tool, e.detail);
-        if (curious && !fx) setFx('peer', 1500);
-        tell(curious || toolLine(e.tool, e.detail), 4000);
+        const detail = detailLine(e, s);
+        const curious = detail ? null : curiousLine(e.tool, e.detail);
+        if ((detail || curious) && !fx) setFx('peer', 1500);
+        tell(detail || curious || toolLine(e.tool, e.detail), 4000);
       }
       backToIdle(60000); break;
 
@@ -483,10 +799,10 @@ window.buddy.onEvent((e) => {
       activeTools = Math.max(0, activeTools - 1);
       s.state = 'thinking';
       if (activeTools === 0) setState('thinking');
-      if (kind === 'test') { bump('joy', 0.15); feel.worry *= 0.6; sfx('cheer'); setFx('hop', 500); tell(pick(['Tests pass! ✓', 'All green!', 'They pass! They pass!']), 3000); }
-      else if (kind === 'commit') { bump('joy', 0.1); sfx('done'); setFx('hop', 500); tell(pick(['Committed! Saved forever.', 'Into the history books.']), 3000); }
-      else if (kind === 'push') { tell(pick(['Off it goes!', 'Fly, little commits!']), 2500); }
-      else if (kind === 'build') { bump('joy', 0.08); tell(pick(['It builds!', 'Compiles. Ship it? (No.)']), 2500); }
+      if (kind === 'test') { tally('tests'); bump('joy', 0.15); feel.worry *= 0.6; sfx('cheer'); setFx('hop', 500); tell(pick(['Tests pass! ✓', 'All green!', 'They pass! They pass!', 'Green across the board!', 'Not a single red one!', 'Passing! I never doubted us.']), 3000); }
+      else if (kind === 'commit') { tally('commits'); bump('joy', 0.1); sfx('done'); setFx('hop', 500); tell(pick(['Committed! Saved forever.', 'Into the history books.', 'Another one for the log.', 'Commit! Nice message, probably.', 'Snapshot taken!']), 3000); }
+      else if (kind === 'push') { tell(pick(['Off it goes!', 'Fly, little commits!', 'To the cloud!', 'Pushed. No take-backs.']), 2500); }
+      else if (kind === 'build') { bump('joy', 0.08); tell(pick(['It builds!', 'Compiles. Ship it? (No.)', 'Zero errors! Zero!', 'Built. I helped. (I watched.)']), 2500); }
       else if (kind === 'danger') { tell('Phew. Still in one piece.', 2500); }
       break;
 
@@ -498,10 +814,10 @@ window.buddy.onEvent((e) => {
       bump('joy', -0.15);
       sfx('fail');
       setState('sad');
-      tell(kind === 'test' ? pick(['Tests failed… we\'ll get them.', 'Red. Okay. Deep breath.'])
+      tell(kind === 'test' ? pick(['Tests failed… we\'ll get them.', 'Red. Okay. Deep breath.', 'Some red. We can fix red.', 'Failing tests are just to-do lists.'])
         : kind === 'build' ? 'It didn\'t build. Hmm.'
         : feel.worry > 0.6 ? 'Another one… are we okay?'
-        : 'Oof, that one failed.');
+        : pick(voice().fail || ['Oof, that one failed.', 'That didn\'t work. Next!', 'Hmm. Not that way.', 'Oops. We\'ll try again.']));
       backToIdle(3000); break;
 
     case 'PermissionRequest':
@@ -520,13 +836,14 @@ window.buddy.onEvent((e) => {
     case 'SubagentStart':
       tell(`Helper joined${e.agentType ? ': ' + clip(e.agentType, 24) : ''}`); break;
     case 'SubagentStop':
-      tell('Helper is done.'); break;
+      tell(pick(['Helper is done.', 'Helper\'s back!', 'Thanks, helper!'])); break;
 
     case 'Stop': {
       activeTools = 0;
       s.state = 'idle';
       const relieved = feel.worry > 0.4;
       const big = s.taskTools >= 15;
+      const toolsUsed = s.taskTools;
       const before = life.tasks;
       const streakBefore = streak();
       const took = s.taskStart ? Date.now() - s.taskStart : 0;
@@ -539,6 +856,13 @@ window.buddy.onEvent((e) => {
       recordDay();
       const prize = checkUnlocks(before);
       const run = streak();
+      bondUp(0.3);
+      if (life.tasks >= 100) earn('centurion');
+      if (toolsUsed >= 50) earn('marathon');
+      if (hour() < 5) earn('nightowl');
+      else if (hour() < 7) earn('earlybird');
+      if (run >= 7) earn('weekstreak');
+      if (run >= 30) earn('monthstreak');
       const milestone = run > streakBefore && [3, 7, 14, 30, 50, 100].includes(run);
       applyLook();
       bump('joy', big ? 0.5 : 0.2);
@@ -556,7 +880,10 @@ window.buddy.onEvent((e) => {
         tell(relieved ? 'Phew! We made it.'
           : big ? 'We did it! That was a big one!'
           : mood === 'tired' ? 'Done… can I nap now?'
-          : 'All done!');
+          : took > 5 * 60000 ? `Done! That one took ${span(took)}.`
+          : [5, 10, 25, 50, 100].includes(day.tasks) ? `That's ${day.tasks} tasks today!`
+          : took && took < 10000 ? pick(['That was quick!', 'Blink and it\'s done.', 'Speedy!'])
+          : pick(voice().done || ['All done!', 'Finished!', 'And… done.', 'Ta-da! All yours.', 'Done and dusted.', 'That\'s a wrap!']));
       }
       backToIdle(prize || milestone ? 6000 : 2500); break;
     }
@@ -574,7 +901,7 @@ window.buddy.onEvent((e) => {
 
     case 'SessionEnd':
       sessions.delete(s.id);
-      tell('Bye!'); setState(alertSession() ? 'alert' : 'idle'); break;
+      tell(pick(['Bye!', 'See you soon!', 'Bye bye! Come back!', 'Good session!'])); setState(alertSession() ? 'alert' : 'idle'); break;
   }
   store('buddy-day', day);
   renderMinis();
@@ -583,35 +910,35 @@ window.buddy.onEvent((e) => {
 // ---- phrases (config.json can replace any of these lists) ----
 
 const POKE_LINES = {
-  idle:     ['Hey!', 'Boop.', 'That tickles!', 'Yes? Yes?', 'Poke received.', '*wiggles*', 'What was that for?', 'Ooh, is that a mouse?'],
-  thinking: ['Shh, thinking…', 'Hold that thought.', 'Hmm? Oh. Hi.'],
-  working:  ['Busy! …but hi.', 'Typing here!', 'One sec, one sec.'],
-  happy:    ['Hehe!', 'Yay!', 'High five!'],
-  sad:      ['…thanks. I needed that.', 'It was not my fault.'],
-  night:    ['Mmh… it\'s so late…', '*sleepy blink*', 'Shhh. Night time.'],
+  idle:     ['Hey!', 'Boop.', 'That tickles!', 'Yes? Yes?', 'Poke received.', '*wiggles*', 'What was that for?', 'Ooh, is that a mouse?', 'Boop yourself.', 'I felt that.', 'Again? Okay!', 'Hi hi hi.', 'You rang?', 'That\'s my good side.', 'Careful, I\'m pixelated.', 'Eee!'],
+  thinking: ['Shh, thinking…', 'Hold that thought.', 'Hmm? Oh. Hi.', 'Almost had it…', 'Thinking is hard, okay?', 'Shh, the idea is loading.'],
+  working:  ['Busy! …but hi.', 'Typing here!', 'One sec, one sec.', 'Can\'t talk. Coding.', 'Later! Promise.', 'Hands full! All two of them.', 'In the zone.'],
+  happy:    ['Hehe!', 'Yay!', 'High five!', 'We did good!', 'Woo!', 'Best team.'],
+  sad:      ['…thanks. I needed that.', 'It was not my fault.', 'I\'ll be okay.', 'Hug? …pixel hug?', 'Next one\'s ours.'],
+  night:    ['Mmh… it\'s so late…', '*sleepy blink*', 'Shhh. Night time.', 'Zzz—oh. Hi.', 'Whisper, please.', 'The moon says hi.'],
 };
 
 // What a poke gets you depends on how it feels (only while it isn't busy).
 const MOOD_POKE = {
-  joyful:  ['Hehe! Again!', 'Boop back!', '♥', 'Best day.'],
-  grumpy:  ['Stop it.', 'What.', 'Hmph.', 'I\'m not talking to you.'],
-  tired:   ['Mmh… five more minutes.', '*yawn* …what?'],
-  hungry:  ['Did you bring food?', 'Poke me with a snack next time.'],
-  lonely:  ['You\'re here!', 'Oh! Hi! Hi!', 'I missed you!'],
-  worried: ['Is it going to be okay?', 'Eep!'],
-  glum:    ['…hi.', 'Thanks for checking in.'],
+  joyful:  ['Hehe! Again!', 'Boop back!', '♥', 'Best day.', 'Life is good!', 'I could do this all day.', 'You\'re my favourite human.'],
+  grumpy:  ['Stop it.', 'What.', 'Hmph.', 'I\'m not talking to you.', 'Do you mind.', 'Count to ten. Then don\'t.', 'I am ignoring you.'],
+  tired:   ['Mmh… five more minutes.', '*yawn* …what?', 'Too… many… pokes…', 'Wake me when it\'s done.', 'Zzz—what.'],
+  hungry:  ['Did you bring food?', 'Poke me with a snack next time.', 'Is that a snack? No? Oh.', 'Feed me and we\'ll talk.', 'My tummy says hi.'],
+  lonely:  ['You\'re here!', 'Oh! Hi! Hi!', 'I missed you!', 'Don\'t go again!', 'Stay a while?', 'I saved your spot.'],
+  worried: ['Is it going to be okay?', 'Eep!', 'Hold me.', 'Tell me it\'s fine.', 'Are the tests okay?'],
+  glum:    ['…hi.', 'Thanks for checking in.', 'Could be worse, I guess.', 'A poke helps. A little.'],
 };
 
 const MUSE = {
-  joyful:  ['♪ la la la ♪', 'Today is a good day.', 'I like it here.'],
-  grumpy:  ['Hmph.', '…'],
-  tired:   ['*yawn*', 'So… sleepy…'],
-  hungry:  ['*tummy rumbles*', 'Is it snack time yet?', 'I could really eat a file.'],
-  lonely:  ['…hello?', 'Is anyone there?', 'I could use a poke.'],
-  worried: ['What if it breaks again?', 'I hope the tests pass…'],
-  glum:    ['*sigh*', 'It\'ll go better next time.'],
+  joyful:  ['♪ la la la ♪', 'Today is a good day.', 'I like it here.', 'I love a tidy diff.', 'Everything is working and I am suspicious.', '*happy wiggle*'],
+  grumpy:  ['Hmph.', '…', 'I am not sulking. I\'m resting angrily.', '*pointed silence*'],
+  tired:   ['*yawn*', 'So… sleepy…', 'My pixels are heavy.', 'Five-minute nap? Ten?'],
+  hungry:  ['*tummy rumbles*', 'Is it snack time yet?', 'I could really eat a file.', 'A small .txt would do.', 'I dreamt of a zip file.'],
+  lonely:  ['…hello?', 'Is anyone there?', 'I could use a poke.', 'I named the cursor. It left.', 'Even the taskbar is quiet.'],
+  worried: ['What if it breaks again?', 'I hope the tests pass…', 'Did we save? We saved, right?', 'Fingers crossed. All… none of them.'],
+  glum:    ['*sigh*', 'It\'ll go better next time.', 'Tomorrow is a new build.', 'Bugs happen. To us. A lot.'],
 };
-const MUSE_NIGHT = ['It\'s late… shouldn\'t we be asleep?', 'The screen is so bright at night.', 'Everyone else is asleep, you know.', 'Just… resting my eyes…'];
+const MUSE_NIGHT = ['It\'s late… shouldn\'t we be asleep?', 'The screen is so bright at night.', 'Everyone else is asleep, you know.', 'Just… resting my eyes…', 'The fans are so quiet at night.', 'Shh… the code is sleeping.', 'Is that the moon or a monitor?', 'One more commit, then bed. Right?'];
 const MUSE_ANY = [
   'I wonder what that button does…',
   'What\'s in all those folders?',
@@ -621,29 +948,41 @@ const MUSE_ANY = [
   'Where does the cursor go at night?',
   'I counted my legs again. Still four.',
   'If I had a keyboard I\'d help. Probably.',
+  'Tabs or spaces? I won\'t tell.',
+  'I wonder what Claude is thinking.',
+  'Is the taskbar comfy? It is.',
+  'What does a semicolon taste like?',
+  'I should learn to whistle.',
+  'One day I\'ll catch that cursor.',
+  'Do you think the recycle bin is lonely?',
+  'I like this wallpaper.',
+  'Somewhere, a test is passing.',
+  'I wonder how tall I am in real pixels.',
+  'What\'s behind the desktop?',
+  'If I blink, does the code change?',
 ];
-const DREAMS = ['…green tests…', '…no, not the semicolon…', '…five more commits…', 'zzz… snacks…', '…it works on my machine…', '…mmh… cursor…'];
-const YAWNS = ['*yaaawn*', '*yawn* …so sleepy.', 'Is it bedtime yet?', '*yawn* Just one more task?'];
+const DREAMS = ['…green tests…', '…no, not the semicolon…', '…five more commits…', 'zzz… snacks…', '…it works on my machine…', '…mmh… cursor…', '…merge conflict… no…', '…so many snacks…', '…all tests green…', '…chasing the ball…', '…who moved my taskbar…', '…just one more poke…'];
+const YAWNS = ['*yaaawn*', '*yawn* …so sleepy.', 'Is it bedtime yet?', '*yawn* Just one more task?', '*yaaaawn* …excuse me.', 'My eyes are doing the thing.', '*stretch* …nope, still sleepy.'];
 
 const MOOD_ARRIVES = {
-  joyful:  ['I feel great!', '♪ la la la ♪'],
-  grumpy:  ['Hmph.', 'Okay, that\'s enough.'],
-  tired:   ['*yawn* I\'m beat.'],
-  hungry:  ['My tummy\'s rumbling…', 'Got a file I could eat? Drag one onto me.'],
-  lonely:  ['…hello? Anyone?', 'It\'s quiet. Too quiet.'],
-  worried: ['I have a bad feeling about this…'],
-  glum:    ['*sigh*'],
+  joyful:  ['I feel great!', '♪ la la la ♪', 'What a day!', 'I\'m in such a good mood!'],
+  grumpy:  ['Hmph.', 'Okay, that\'s enough.', 'That\'s it. I\'m cross.', 'I need a minute.'],
+  tired:   ['*yawn* I\'m beat.', 'Running on fumes…', 'So… many… tasks…'],
+  hungry:  ['My tummy\'s rumbling…', 'Got a file I could eat? Drag one onto me.', 'Snack o\'clock?', 'I\'m wasting away over here.'],
+  lonely:  ['…hello? Anyone?', 'It\'s quiet. Too quiet.', 'Did everyone go home?', 'I miss the clicking.'],
+  worried: ['I have a bad feeling about this…', 'Something feels off…', 'Uh oh. Uh oh uh oh.'],
+  glum:    ['*sigh*', 'Not our best run.', 'Meh.'],
 };
 
 const MOOD_REPORT = {
-  content: ['I\'m good. Just watching.'],
-  joyful:  ['Really happy right now!'],
-  grumpy:  ['Annoyed. Too much poking. (Pets help.)'],
-  worried: ['Nervous… things keep failing.'],
-  tired:   ['So sleepy. It\'s been a long session.'],
-  hungry:  ['Hungry! Drag a file or some text onto me.'],
-  lonely:  ['A bit lonely. Nobody has said hi in ages.'],
-  glum:    ['Kind of down. Rough run.'],
+  content: ['I\'m good. Just watching.', 'Pretty content. Nice and calm.', 'All good here!'],
+  joyful:  ['Really happy right now!', 'On top of the world!'],
+  grumpy:  ['Annoyed. Too much poking. (Pets help.)', 'Cranky. Give me a minute (or a pet).'],
+  worried: ['Nervous… things keep failing.', 'A bit anxious about all those errors.'],
+  tired:   ['So sleepy. It\'s been a long session.', 'Worn out. A nap would fix it.'],
+  hungry:  ['Hungry! Drag a file or some text onto me.', 'Starving. A file would be lovely.'],
+  lonely:  ['A bit lonely. Nobody has said hi in ages.', 'Lonely. Come say hi more often?'],
+  glum:    ['Kind of down. Rough run.', 'A little blue. It\'ll pass.'],
 };
 
 const LINES = { poke: POKE_LINES, moodPoke: MOOD_POKE, muse: MUSE, museNight: MUSE_NIGHT, museAny: MUSE_ANY, dreams: DREAMS, yawns: YAWNS, moodArrives: MOOD_ARRIVES, moodReport: MOOD_REPORT };
@@ -675,6 +1014,12 @@ function applyConfig(c) {
       for (const [sub, list] of Object.entries(v)) if (phrases(list)) target[sub] = phrases(list);
     }
   }
+  // "personas": { "sarcastic": { "pokeIdle": [...], "done": [...] } } retunes a personality
+  for (const [id, sets] of Object.entries(c.personas && typeof c.personas === 'object' ? c.personas : {})) {
+    if (!PERSONA[id] || !sets || typeof sets !== 'object') continue;
+    for (const [key, list] of Object.entries(sets)) if (phrases(list)) PERSONA[id][key] = phrases(list);
+  }
+  applySeason();
 }
 
 // ---- mouse interaction ----
@@ -722,20 +1067,23 @@ function poke() {
     bump('irritation', isNight() ? 0.15 : 0.3); // nobody likes being woken up
     setFx('poke', 350);
     sfx('poke');
-    say(isNight() ? pick(['Mmh… it\'s the middle of the night…', 'Wha—? Is it morning?', '…five more hours…'])
-      : pick(['Huh?! I\'m awake!', 'Wha— five more minutes…', 'I was resting my eyes.']));
+    say(isNight() ? pick(['Mmh… it\'s the middle of the night…', 'Wha—? Is it morning?', '…five more hours…', 'Shh… dreaming…', 'Is the house on fire? No? Goodnight.'])
+      : pick(voice().wake || ['Huh?! I\'m awake!', 'Wha— five more minutes…', 'I was resting my eyes.', 'I wasn\'t sleeping. You were sleeping.', 'Who— what— hi.']));
     return;
   }
   const now = Date.now();
   pokes = pokes.filter((t) => now - t < 2500);
   pokes.push(now);
   day.pokes++;
+  tally('pokes');
+  bondUp(0.05);
   if (pokes.length >= 5) {
     pokes = [];
+    tally('dizzy');
     bump('irritation', 0.35);
     setFx('dizzy', 2600);
     sfx('fail');
-    say(pick(['S-stop… so dizzy…', 'Okay okay okay!', 'The room is spinning.']), 2600);
+    say(pick(['S-stop… so dizzy…', 'Okay okay okay!', 'The room is spinning.', 'I see three cursors.', 'Please… mercy…']), 2600);
     return;
   }
   setFx('poke', 350);
@@ -746,7 +1094,10 @@ function poke() {
   else bump('joy', 0.05);
   const calm = state === 'idle' || state === 'thinking';
   const moodLines = calm ? (wasLonely ? MOOD_POKE.lonely : MOOD_POKE[mood] || (isNight() ? POKE_LINES.night : null)) : null;
-  say(pick(moodLines || POKE_LINES[state] || POKE_LINES.idle), 2000);
+  // a persona's voice, or (now and then) something only a friend would get
+  const own = state === 'idle' ? voice().pokeIdle : state === 'working' ? voice().pokeWorking : null;
+  const friendly = calm && !moodLines && Math.random() < 0.3 ? BOND_POKE[bondLevel()] : null;
+  say(pick(moodLines || friendly || own || POKE_LINES[state] || POKE_LINES.idle), 2000);
 }
 
 svg.addEventListener('pointerdown', (e) => {
@@ -758,7 +1109,7 @@ svg.addEventListener('pointerdown', (e) => {
 svg.addEventListener('pointermove', (e) => {
   if (down && !dragging && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 5) {
     dragging = true;
-    away = walking = returning = false; // wherever it ends up is the new home
+    away = walking = returning = goingToBed = false; // wherever it ends up is the new home
     touch();
     window.buddy.drag(true);
     setFx('held', 0);
@@ -767,7 +1118,7 @@ svg.addEventListener('pointermove', (e) => {
     say(mood === 'grumpy' ? 'Put. Me. Down.'
       : mood === 'tired' || isNight() ? 'Mmh… carry me gently.'
       : mood === 'joyful' ? 'Wheee! Faster!'
-      : pick(['Wheee!', 'Whoa, whoa!', 'Put me down!', 'Where are we going?']), 2000);
+      : pick(voice().drag || ['Wheee!', 'Whoa, whoa!', 'Put me down!', 'Where are we going?', 'Up we go!', 'I\'m flying! Sort of.', 'Careful, I\'m fragile-ish.']), 2000);
     return;
   }
   if (down || fx === 'sleep') return;
@@ -789,10 +1140,14 @@ svg.addEventListener('pointermove', (e) => {
       bump('irritation', -0.6);
       bump('lonely', -0.6);
       bump('joy', 0.3);
+      tally('pets');
+      // petting counts toward friendship a few times a day
+      day.petBond = (day.petBond || 0) + 1;
+      if (day.petBond <= 5) bondUp(1);
       setFx('pet', 2200);
       sfx('pet');
-      say(wasGrumpy ? pick(['…fine. I forgive you.', 'Hmph. …okay, that\'s nice.'])
-        : pick(['Purrr…', 'Aww, thanks.', 'Right there. Yes.', '♥']), 2200);
+      say(wasGrumpy ? pick(['…fine. I forgive you.', 'Hmph. …okay, that\'s nice.', 'Okay. Okay. We\'re good.', 'You\'re lucky you\'re nice.'])
+        : pick(voice().pet || ['Purrr…', 'Aww, thanks.', 'Right there. Yes.', '♥', 'Mmmm.', 'Don\'t stop.', 'I\'m a happy little crab-thing.', 'Best part of my day.']), 2200);
     }
   }
 });
@@ -820,7 +1175,7 @@ svg.addEventListener('dblclick', () => {
   bump('joy', 0.1);
   setFx('spin', 700);
   sfx('cheer');
-  say(pick(['Ta-da!', 'Wheee!', 'Did you see that?!']), 2000);
+  say(pick(['Ta-da!', 'Wheee!', 'Did you see that?!', 'Ten out of ten!', 'Nailed it.', 'Again? Again!']), 2000);
 });
 
 window.addEventListener('contextmenu', (e) => {
@@ -832,20 +1187,21 @@ window.addEventListener('contextmenu', (e) => {
 
 window.buddy.onFly(({ speed }) => {
   touch();
-  away = walking = returning = false; // it may have walked off the edge of a window
+  away = walking = returning = goingToBed = false; // it may have walked off the edge of a window
   if (speed > 18) {
+    tally('throws');
     setFx('fly', 0);
-    say(mood === 'grumpy' ? 'HEY—!' : pick(['WHEEEEE!', 'I can flyyy!', 'Aaaaaah!']), 2500);
+    say(mood === 'grumpy' ? 'HEY—!' : pick(['WHEEEEE!', 'I can flyyy!', 'Aaaaaah!', 'To infinity!', 'Yeeeeet!', 'Tell my taskbar I love her!']), 2500);
   } else {
     setFx('fall', 0);
-    if (speed > 0 || Math.random() < 0.5) say(pick(['Whoa—', 'Falling!', 'Eep!']), 1500);
+    if (speed > 0 || Math.random() < 0.5) say(pick(['Whoa—', 'Falling!', 'Eep!', 'Gravity!', 'Not again!', 'Down I go!']), 1500);
   }
 });
 
 window.buddy.onBounce(() => {
   if (fx !== 'fly' && fx !== 'fall') return;
   sfx('bounce');
-  say(pick(['Boing!', 'Oof!', 'Ow!']), 1200);
+  say(pick(['Boing!', 'Oof!', 'Ow!', 'Bonk!', 'Bounce!', 'Ouch-ish!']), 1200);
 });
 
 window.buddy.onLanded(({ impact, placed, perch }) => {
@@ -853,15 +1209,16 @@ window.buddy.onLanded(({ impact, placed, perch }) => {
   if (!placed) sfx('bounce');
   if (placed) {
     setFx('land', 400);
-    say(pick(['Oof.', 'Nice spot.', 'Home sweet home.']), 1800);
+    say(pick(['Oof.', 'Nice spot.', 'Home sweet home.', 'Cozy.', 'I like it here.', 'This\'ll do.']), 1800);
   } else if (impact > 32) {
     // a hard landing
     if (mood === 'joyful') { bump('joy', 0.1); setFx('land', 400); say('Again! Again!', 2000); }
-    else { bump('irritation', 0.2); setFx('dizzy', 1800); say(pick(['Oww… that was a big one.', 'I\'m okay! …I think.', 'Not. So. Hard.']), 2500); }
+    else { bump('irritation', 0.2); setFx('dizzy', 1800); say(pick(['Oww… that was a big one.', 'I\'m okay! …I think.', 'Not. So. Hard.', 'I saw stars. Pixel stars.', 'Do I still have four legs?']), 2500); }
   } else {
     setFx('land', 400);
-    say(perch ? pick(['Ooh, nice view from up here.', 'I live on this window now.', 'King of the title bar!'])
-      : pick(['Oof.', 'Stuck the landing.', 'Ta-da.']), 2200);
+    if (perch) tally('perches');
+    say(perch ? pick(['Ooh, nice view from up here.', 'I live on this window now.', 'King of the title bar!', 'I can see my taskbar from here!', 'Don\'t close this one, okay?', 'Penthouse!'])
+      : pick(['Oof.', 'Stuck the landing.', 'Ta-da.', 'Perfect ten.', 'Gently, gently… there.', 'And… down.']), 2200);
   }
 });
 
@@ -871,7 +1228,7 @@ function stopChase(worn) {
   chasing = false;
   window.buddy.chase(false);
   if (fx === 'walk') setFx('', 0);
-  if (worn) say(pick(['Phew… your turn!', 'Okay, I need a breather.', 'Throw it again?']), 3000);
+  if (worn) say(pick(['Phew… your turn!', 'Okay, I need a breather.', 'Throw it again?', 'Good game!', 'I\'m pooped. Fun though!']), 3000);
 }
 
 window.buddy.onBall((info) => {
@@ -884,9 +1241,11 @@ window.buddy.onBatted(() => {
   touch();
   bump('joy', 0.06);
   bump('energy', -0.02);
+  tally('bats');
+  bondUp(0.2);
   sfx('bat');
   setFx('hop', 400);
-  if (bats === 1 || Math.random() < 0.4) say(pick(['Got it!', 'Boop!', 'Mine!', 'Hah!']), 1200);
+  if (bats === 1 || Math.random() < 0.4) say(pick(['Got it!', 'Boop!', 'Mine!', 'Hah!', 'Bap!', 'Pow!', 'Take that!', 'Whack!']), 1200);
 });
 
 // ---- snacks: drag a file or some text onto it ----
@@ -933,7 +1292,7 @@ function feed(name, text) {
   if (stuffed) {
     bump('joy', -0.05);
     setFx('poke', 350);
-    say(pick(['Urp… too full.', 'I couldn\'t possibly. …okay, one bite.', 'No more… please…']), 3000);
+    say(pick(['Urp… too full.', 'I couldn\'t possibly. …okay, one bite.', 'No more… please…', 'I\'m a balloon now.', 'Save it for later?']), 3000);
     hiccups(3);
     return;
   }
@@ -941,27 +1300,52 @@ function feed(name, text) {
   bump('joy', 0.15);
   bump('lonely', -0.5);
   bump('irritation', -0.2);
+  bondUp(1.5);
+  const kind = ((/\.([a-z0-9]{1,8})$/i.exec(name || '') || [])[1] || (name ? 'file' : 'text')).toLowerCase();
+  life.stats.kinds = Array.isArray(life.stats.kinds) ? life.stats.kinds : [];
+  if (!life.stats.kinds.includes(kind) && life.stats.kinds.length < 200) life.stats.kinds.push(kind);
+  if (life.stats.kinds.length >= 10) earn('gourmet');
+  saveLife();
   setFx('eat', 1800);
   sfx('eat');
   say(flavour(name, text), 3500);
 }
 
-window.addEventListener('dragover', (e) => {
+// While something is being dragged over the window, the whole window stays solid. Otherwise
+// the hopping buddy moves out from under the cursor, the window turns click-through again and
+// the drop lands on whatever is behind it.
+function overWithFood(e) {
   e.preventDefault();
-  e.dataTransfer.dropEffect = 'copy';
+  // Take a copy or a link, never a move: accepting a move could make the source delete the file.
+  const allowed = e.dataTransfer.effectAllowed;
+  e.dataTransfer.dropEffect = /copy|all|uninitialized/i.test(allowed) ? 'copy' : /link/i.test(allowed) ? 'link' : 'none';
   const now = Date.now();
+  if (now - foodDragAt > 1000) window.buddy.ignoreMouse(false);
+  foodDragAt = now;
+  hovering = true; // so click-through is re-checked once the drag is over
   if (fx !== 'eat' && now - wantAt > 1500) {
     wantAt = now;
+    if (fx === 'sleep') setFx('', 0);
     setFx('want', 3000);
     say(mood === 'hungry' ? 'FOOD! Gimme!' : 'Ooh, is that for me?!', 2500);
   }
+}
+window.addEventListener('dragenter', overWithFood);
+window.addEventListener('dragover', overWithFood);
+window.addEventListener('dragleave', (e) => {
+  if (!e.relatedTarget) foodDragAt = Date.now() - 700; // left the window: let go shortly
 });
 
 window.addEventListener('drop', (e) => {
   e.preventDefault();
+  foodDragAt = 0;
   // only the name and the amount of text matter; nothing is read or kept
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
-  feed(file ? file.name : '', file ? '' : e.dataTransfer.getData('text/plain'));
+  let text = '';
+  if (!file) {
+    try { text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list') || ''; } catch {}
+  }
+  feed(file ? file.name : '', text);
 });
 
 // ---- the cursor ----
@@ -999,15 +1383,18 @@ window.buddy.onCursor(({ x, y, sx, sy }) => {
       lastFlinch = now;
       setFx('poke', 350);
       sfx('poke');
-      say(pick(['Eep!', 'Whoa!', 'Don\'t sneak up on me!']), 1500);
+      say(pick(['Eep!', 'Whoa!', 'Don\'t sneak up on me!', 'Yikes!', 'Personal space!', 'You startled me!']), 1500);
     }
     cur.was = cur.dist;
     cur.wasAt = now;
   }
 
-  if (dragging || down) return;
+  if (dragging || down || editingNote || now - foodDragAt < 1000) return;
   const el = document.elementFromPoint(x, y);
-  const hit = !!el && (wrap.contains(el) || el === bubble || minis.contains(el));
+  // the box around the body counts too, so the gaps between its legs and arms don't let a
+  // click or a dragged snack slip through
+  const inBox = x > r.left + r.width * 0.1 && x < r.right - r.width * 0.1 && y > r.top + r.height * 0.22 && y < r.top + r.height * 0.84;
+  const hit = inBox || (!!el && (wrap.contains(el) || el === bubble || minis.contains(el) || el === noteEl));
   if (hit !== hovering) {
     hovering = hit;
     window.buddy.ignoreMouse(!hit);
@@ -1032,12 +1419,18 @@ function goHome() {
 window.buddy.onWalkDone(() => {
   if (!walking) return; // picked up mid-walk
   walking = false;
+  if (goingToBed) {
+    goingToBed = false;
+    setFx('sleep', 0);
+    nextDream = Date.now() + 20000 + Math.random() * 30000;
+    return;
+  }
   if (returning) {
     returning = away = false;
     setFx('', 0);
   } else {
     setFx('peer', 2500);
-    say(pick(['Whatcha doing?', 'What\'s this? What\'s this?', 'Ooh. Interesting.', 'Can I see?']), 2500);
+    say(pick(['Whatcha doing?', 'What\'s this? What\'s this?', 'Ooh. Interesting.', 'Can I see?', 'Anything good?', 'I\'m just looking.', 'Ooh, shiny.']), 2500);
   }
 });
 
@@ -1045,6 +1438,8 @@ window.buddy.onSettings((s) => {
   wander = !!s.wander;
   gravity = !!s.gravity;
   soundOn = !!s.sound;
+  bedOn = !!s.bed;
+  persona = PERSONA[s.personality] ? s.personality : 'cheerful';
   applyConfig(s.config);
   render();
   if (!wander && away && !returning) goHome();
@@ -1075,9 +1470,11 @@ setInterval(() => {
     return;
   }
 
+  if (focusUntil && now >= focusUntil) { finishFocus(); return; }
+
   // ball games come before everything else
   if (ballInfo.exists && ballInfo.thrown !== ballRound) { ballRound = ballInfo.thrown; bats = 0; }
-  const canPlay = gravity && ballInfo.exists && ballInfo.active && bats < 6 && state === 'idle' && mood !== 'grumpy' && mood !== 'tired' && !dragging && !down && !away;
+  const canPlay = ballInfo.exists && ballInfo.active && bats < 6 && state === 'idle' && mood !== 'grumpy' && mood !== 'tired' && !dragging && !down && !away;
   if (chasing) {
     if (!canPlay) stopChase(bats >= 6);
     else { touch(); if (!fx) setFx('walk', 0); }
@@ -1087,7 +1484,7 @@ setInterval(() => {
     chasing = true;
     window.buddy.chase(true);
     setFx('walk', 0);
-    say(pick(['Ball! Ball! Ball!', 'Ooh! Mine!', 'I\'ll get it!']), 2000);
+    say(pick(['Ball! Ball! Ball!', 'Ooh! Mine!', 'I\'ll get it!', 'BALL!', 'It\'s getting away!', 'Mine mine mine!']), 2000);
     return;
   }
 
@@ -1096,7 +1493,16 @@ setInterval(() => {
     if (!walking && (now - awaySince > 15000 || state !== 'idle' || d > 500)) goHome();
     return;
   }
-  if (walking || fx || dragging || down) return;
+  if (walking || fx || dragging || down || editingNote) return;
+  if (focusUntil) return; // focusing: no chatter, no wandering
+
+  // friends get a nuzzle when the cursor just rests on it
+  if (hovering && still > 2000 && state === 'idle' && bondLevel() >= 2 && mood !== 'grumpy' && now - lastNuzzle > 60000) {
+    lastNuzzle = now;
+    setFx('pet', 1800);
+    say(pick(['*nuzzle*', 'Hi friend.', '♥', '*leans on cursor*']), 1800);
+    return;
+  }
 
   const tripGap = (mood === 'lonely' ? CFG.wanderCooldownSec / 3 : CFG.wanderCooldownSec) * 1000;
   if (wander && mood !== 'grumpy' && !sleepy && state === 'idle' && still > 3000 && still < 20000 && d > 300 && d < 800 && now - lastTrip > tripGap) {
@@ -1106,12 +1512,12 @@ setInterval(() => {
     awaySince = lastTrip = now;
     window.buddy.walk(gravity ? { x: Math.sign(cur.dx) * go, y: 0 } : { x: (cur.dx / cur.dist) * go, y: (cur.dy / cur.dist) * go });
     setFx('walk', 0);
-    say(pick(['Ooh, what\'s over there?', 'Wait, what\'s that?', 'Hang on, I want to see.']), 2500);
+    say(pick(['Ooh, what\'s over there?', 'Wait, what\'s that?', 'Hang on, I want to see.', 'I must investigate.', 'Be right back!', 'Something moved!']), 2500);
   } else if (mood !== 'grumpy' && (state === 'idle' || state === 'thinking') && still > 1500 && still < 6000 && cur.dist > 90 && cur.dist < 300 && now - lastPeer > 40000) {
     // the cursor is loitering close by: crane over for a look
     lastPeer = now;
     setFx('peer', 2500);
-    say(pick(['Whatcha got there?', 'Hmm? What\'s that?', 'Ooh, what are you clicking?', 'Is that for me?']), 2500);
+    say(pick(['Whatcha got there?', 'Hmm? What\'s that?', 'Ooh, what are you clicking?', 'Is that for me?', 'Can I help? I can\'t. But can I?', 'That looks important.', 'Ooh, do that again.']), 2500);
   } else if (state === 'idle' && isMorning() && !day.greeted) {
     rollDay();
     day.greeted = true;
@@ -1141,7 +1547,7 @@ setInterval(() => {
       if (mood === 'joyful' && roll < 0.5) setFx('hop', 500);
       else setFx('look', 2400);
       if (roll < 0.2 && !MUSE[mood]) say(`It's ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} already?`, 3000);
-      else if (roll < 0.6) say(pick(MUSE[mood] || (isNight() ? MUSE_NIGHT : MUSE_ANY)), 3500);
+      else if (roll < 0.6) say(pick(MUSE[mood] || (isNight() ? MUSE_NIGHT : voice().muse || MUSE_ANY)), 3500);
     }
   }
 }, 500);
@@ -1172,10 +1578,10 @@ function saveFeel() {
 
 // Feelings carry over between runs; time apart makes it lonelier and hungrier, but rested.
 {
-  const saved = load('buddy-feel', null);
-  if (saved) {
-    for (const k of Object.keys(feel)) if (Number.isFinite(saved[k])) { feel[k] = saved[k]; bump(k, 0); }
-    const gone = Math.max(0, (Date.now() - (Number(saved.t) || Date.now())) / 1000);
+  const was = load('buddy-feel', null);
+  if (was) {
+    for (const k of Object.keys(feel)) if (Number.isFinite(was[k])) { feel[k] = was[k]; bump(k, 0); }
+    const gone = Math.max(0, (Date.now() - (Number(was.t) || Date.now())) / 1000);
     bump('lonely', gone / 3600);
     bump('hunger', gone / 7200);
     bump('energy', gone / 600);
@@ -1218,7 +1624,7 @@ setInterval(() => {
       else if (prev === 'hungry') say('Ahh. Much better.', 2500);
     }
   }
-  if (++feelTicks % 30 === 0) saveFeel();
+  if (++feelTicks % 30 === 0) { saveFeel(); applySeason(); }
 }, 1000);
 window.addEventListener('beforeunload', saveFeel);
 
@@ -1227,7 +1633,8 @@ window.buddy.onAskMood(() => {
   if (fx === 'sleep') { say('Zzz… mmh? Sleepy. Very sleepy.', 3000); return; }
   const worst = [...sessions.values()].sort((a, b) => b.ctx - a.ctx)[0];
   const room = worst && worst.ctx >= CFG.contextWarnAt[0] ? ` Also: context is ${worst.ctx}% full.` : '';
-  say(pick(MOOD_REPORT[mood] || MOOD_REPORT.content) + (isNight() && mood === 'content' ? ' A bit sleepy.' : '') + room, 5000);
+  const timer = focusUntil ? ` Focus: ${Math.max(1, Math.round((focusUntil - Date.now()) / 60000))} min left.` : '';
+  say(pick(MOOD_REPORT[mood] || MOOD_REPORT.content) + (isNight() && mood === 'content' ? ' A bit sleepy.' : '') + room + timer + ` We're: ${BOND_NAMES[bondLevel()].toLowerCase()}.`, 6500);
 });
 
 // Nod off after a couple of quiet minutes (much sooner when tired or late); any hook event or
@@ -1242,7 +1649,17 @@ setInterval(() => {
     return;
   }
   const patience = (mood === 'tired' || isNight() ? CFG.sleepAfterSecSleepy : CFG.sleepAfterSec) * 1000;
-  if (state === 'idle' && !fx && !away && !chasing && now - lastActivity > patience) {
+  if (now - lastActivity < patience) bedTried = false;
+  if (state === 'idle' && !fx && !away && !chasing && !walking && !focusUntil && !editingNote && now - lastActivity > patience) {
+    if (bedOn && !bedTried) {
+      // it has a bed: walk over to it first (the main process answers when it has arrived)
+      bedTried = true;
+      goingToBed = walking = true;
+      setFx('walk', 0);
+      say(pick(['*yawn* Bedtime.', 'Off to bed…', 'My bed is calling.']), 2500);
+      window.buddy.goBed();
+      return;
+    }
     setFx('sleep', 0);
     nextDream = now + 20000 + Math.random() * 30000;
     bubble.classList.remove('show');
@@ -1250,4 +1667,9 @@ setInterval(() => {
 }, 5000);
 
 applyLook();
+visit();
+applySeason();
+showNote();
+recordDay();
+saveFeel();
 setState('idle');

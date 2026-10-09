@@ -66,6 +66,15 @@ curl -X POST http://127.0.0.1:8787/event -H 'content-type: application/json' \
 - **Ball:** "Throw a ball" in the menu. Drag and fling it; with gravity on, the buddy chases it.
 - **Breaks, streaks, night:** suggests a break after an hour, counts days in a row, and gets
   sleepy at night.
+- **Friendship:** a bond that grows with pets, snacks, play and finished tasks, and cools after
+  days away. Five levels, from stranger to best friend.
+- **Personality:** cheerful, sarcastic, shy or dramatic, picked from the menu.
+- **Achievements:** 18 badges, listed in the menu.
+- **Focus timer:** 25 quiet minutes with an hourglass, then it insists on a break.
+- **Seasons:** scarf in winter, flower in spring, sunglasses in summer, a leaf in autumn, plus
+  a Santa hat and a pumpkin on their dates. Set `southern` in the config for the other hemisphere.
+- **Bed:** turn on "Bed" and drag the bed where you like; it walks there to sleep.
+- **Sticky note:** "Leave a note…" gives it one thing to remember; click the note to clear it.
 - **Menu toggles:** sound, curious wandering, gravity, sit on windows, start with Windows,
   hide/show.
 - **`config.json`:** timings, thresholds, unlock counts and the main phrase lists. Edit it and

@@ -47,11 +47,21 @@ let chase = false;
 let lastBat = 0;
 let ticks = 0;
 
-const settings = { wander: true, gravity: true, sound: true, perch: true };
+const settings = { wander: true, gravity: true, sound: true, perch: true, bed: false, bedX: 0, bedY: 0, personality: 'cheerful' };
+const PERSONALITIES = ['cheerful', 'sarcastic', 'shy', 'dramatic'];
 const settingsFile = path.join(app.getPath('userData'), 'buddy-settings.json');
 let config = {}; // config.json: timings, thresholds and phrases the user can retune
 // what the renderer says is unlocked and worn, for the Wardrobe menu
 let wardrobe = { tasks: 0, hat: '', color: 'classic', hats: [], colors: [] };
+let badges = []; // { label, earned }, also from the renderer
+let pomodoro = false;
+let quitting = false;
+
+// its bed: a little window of its own that it walks back to when it is sleepy
+const BED_W = 170;
+const BED_H = 70;
+let bedWin = null;
+let bedDrag = null;
 
 // Claude Code session id -> pid of the process that sent its hooks, to find its window later
 const sessionPids = new Map();
@@ -62,13 +72,53 @@ let lastSession = '';
 function loadSettings() {
   try {
     const saved = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    for (const k of Object.keys(settings)) if (typeof saved[k] === 'boolean') settings[k] = saved[k];
+    for (const k of Object.keys(settings)) if (typeof saved[k] === typeof settings[k]) settings[k] = saved[k];
+    if (!PERSONALITIES.includes(settings.personality)) settings.personality = 'cheerful';
   } catch {}
 }
 
 function saveSettings() {
   try { fs.writeFileSync(settingsFile, JSON.stringify(settings)); } catch {}
 }
+
+// ---- memory: tasks, streaks and feelings, kept in a file so they survive anything ----
+
+const memoryFile = path.join(app.getPath('userData'), 'buddy-memory.json');
+const MEMORY_KEYS = ['buddy-day', 'buddy-life', 'buddy-history', 'buddy-feel'];
+let memory = {};
+let memoryTimer = null;
+
+function loadMemory() {
+  // the .bak copy covers a crash in the middle of a write
+  for (const file of [memoryFile, memoryFile + '.bak']) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (parsed && typeof parsed === 'object') { memory = parsed; return; }
+    } catch {}
+  }
+}
+
+function flushMemory() {
+  clearTimeout(memoryTimer);
+  memoryTimer = null;
+  try {
+    const tmp = memoryFile + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(memory));
+    if (fs.existsSync(memoryFile)) fs.copyFileSync(memoryFile, memoryFile + '.bak');
+    fs.renameSync(tmp, memoryFile); // swap in whole, never a half-written file
+  } catch (e) {
+    console.error('could not save memory:', e.message);
+  }
+}
+
+ipcMain.on('buddy-memory-load', (e) => { e.returnValue = memory; });
+
+ipcMain.on('buddy-memory-save', (_e, key, value) => {
+  if (!MEMORY_KEYS.includes(key) || !value || typeof value !== 'object') return;
+  if (JSON.stringify(value).length > 200000) return;
+  memory[key] = value;
+  if (!memoryTimer) memoryTimer = setTimeout(flushMemory, 800);
+});
 
 function loadConfig() {
   try {
@@ -137,6 +187,7 @@ function createWindow() {
   win.on('blur', endDrag);
   win.on('closed', () => {
     if (ballWin && !ballWin.isDestroyed()) ballWin.close();
+    if (bedWin && !bedWin.isDestroyed()) bedWin.close();
   });
   win.loadFile('index.html');
 }
@@ -310,6 +361,7 @@ function stepWalk() {
   walk.y = done ? walk.ty : walk.y + (dy / d) * WALK_STEP;
   setPos(walk.x, walk.y);
   if (done) {
+    if (walk.setHome) home = { x: Math.round(walk.tx), y: Math.round(walk.ty) };
     walk = null;
     send('buddy-walk-done');
   }
@@ -358,8 +410,12 @@ function stepFall() {
 function stepChase(now) {
   const b = win.getBounds();
   const dx = ball.x + BALL / 2 - (b.x + WIN_W / 2);
-  if (Math.abs(dx) > 46) {
-    setPos(clampX(area(), b.x + Math.sign(dx) * Math.min(CHASE_STEP, Math.abs(dx))), b.y);
+  // without gravity it floats, so it has to fly over to the ball's height as well
+  const dy = settings.gravity ? 0 : ball.y + BALL - (b.y + WIN_H - FOOT_PAD);
+  if (Math.abs(dx) > 46 || Math.abs(dy) > 30) {
+    const stepX = Math.abs(dx) > 46 ? Math.sign(dx) * Math.min(CHASE_STEP, Math.abs(dx)) : 0;
+    const stepY = Math.abs(dy) > 30 ? Math.sign(dy) * Math.min(CHASE_STEP, Math.abs(dy)) : 0;
+    setPos(clampX(area(), b.x + stepX), b.y + stepY);
     checkPerchEdge();
     if (fall) return;
   }
@@ -436,6 +492,9 @@ function trackCursor() {
     if (ball) {
       stepBall(c, now);
       if (++ticks % 12 === 0) send('buddy-ball', ballState());
+    }
+    if (bedDrag && bedWin && !bedWin.isDestroyed()) {
+      bedWin.setBounds({ x: c.x - bedDrag.x, y: c.y - bedDrag.y, width: BED_W, height: BED_H });
     }
     const b = win.getBounds();
     const rel = { x: c.x - b.x, y: c.y - b.y, sx: c.x, sy: c.y };
@@ -570,8 +629,103 @@ function endChase() {
 }
 
 ipcMain.on('buddy-chase', (_e, on) => {
-  if (on && ball && settings.gravity) { chase = true; walk = null; } else if (chase) endChase();
+  if (on && ball) { chase = true; walk = null; } else if (chase) endChase();
 });
+
+// ---- the bed ----
+
+function createBed() {
+  if (bedWin && !bedWin.isDestroyed()) return;
+  let x = settings.bedX;
+  let y = settings.bedY;
+  if (!x && !y) {
+    const a = area();
+    x = a.x + 60;
+    y = a.y + a.height - BED_H;
+  }
+  // keep it on a screen that still exists
+  const a = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) }).workArea;
+  x = Math.min(Math.max(x, a.x), a.x + a.width - BED_W);
+  y = Math.min(Math.max(y, a.y), a.y + a.height - BED_H);
+  bedWin = new BrowserWindow({
+    width: BED_W,
+    height: BED_H,
+    x: Math.round(x),
+    y: Math.round(y),
+    frame: false,
+    transparent: true,
+    resizable: false,
+    hasShadow: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    webPreferences: { preload: path.join(__dirname, 'bed-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  bedWin.setAlwaysOnTop(true, 'floating');
+  bedWin.webContents.on('will-navigate', (e) => e.preventDefault());
+  bedWin.on('closed', () => {
+    bedWin = null;
+    bedDrag = null;
+  });
+  bedWin.loadFile('bed.html');
+  bedWin.once('ready-to-show', () => { if (win && !win.isDestroyed()) win.moveTop(); });
+}
+
+ipcMain.on('bed-drag', (e, on) => {
+  if (!bedWin || e.sender !== bedWin.webContents) return;
+  const b = bedWin.getBounds();
+  if (on) {
+    const c = screen.getCursorScreenPoint();
+    bedDrag = { x: c.x - b.x, y: c.y - b.y };
+  } else if (bedDrag) {
+    bedDrag = null;
+    let y = b.y;
+    if (settings.gravity) {
+      // beds don't float: it settles on the bottom of whichever screen it was dropped on
+      const a = screen.getDisplayNearestPoint({ x: b.x + BED_W / 2, y: b.y + BED_H / 2 }).workArea;
+      y = a.y + a.height - BED_H;
+      bedWin.setBounds({ x: b.x, y, width: BED_W, height: BED_H });
+    }
+    settings.bedX = b.x;
+    settings.bedY = y;
+    saveSettings();
+    if (win && !win.isDestroyed()) win.moveTop();
+  }
+});
+
+// The renderer says it is sleepy: walk to the bed, and make that home.
+ipcMain.on('buddy-go-bed', () => {
+  if (!win || win.isDestroyed() || !bedWin || bedWin.isDestroyed() || dragOffset || fall) return send('buddy-walk-done');
+  const bed = bedWin.getBounds();
+  const b = win.getBounds();
+  const tx = bed.x + BED_W / 2 - WIN_W / 2;
+  // with gravity it stays on its own level; without, it floats over and settles into the bed
+  const ty = settings.gravity ? b.y : bed.y + BED_H - (WIN_H - FOOT_PAD) - 6;
+  if (Math.hypot(tx - b.x, ty - b.y) < 12) return send('buddy-walk-done');
+  chase = false;
+  walk = { x: b.x, y: b.y, tx, ty, setHome: true };
+  win.moveTop();
+});
+
+// ---- focus timer, notes, goodbye ----
+
+ipcMain.on('buddy-pomodoro-ended', () => { pomodoro = false; });
+
+function editNote() {
+  if (!win || win.isDestroyed()) return;
+  win.show();
+  win.setIgnoreMouseEvents(false);
+  win.focus();
+  send('buddy-note-edit');
+}
+
+// Quit from the menu: give it a few seconds to say goodbye first.
+function quitNicely() {
+  if (quitting || !win || win.isDestroyed() || !win.isVisible()) return app.quit();
+  quitting = true;
+  send('buddy-goodbye');
+  setTimeout(() => app.quit(), 4500);
+}
 
 // ---- finding Claude's window ----
 
@@ -664,6 +818,10 @@ function setSetting(key, value) {
   settings[key] = value;
   saveSettings();
   sendSettings();
+  if (key === 'bed') {
+    if (value) createBed();
+    else if (bedWin && !bedWin.isDestroyed()) bedWin.close();
+  }
   if (key === 'gravity' && value && win && !dragOffset) {
     walk = null;
     const b = win.getBounds();
@@ -674,7 +832,6 @@ function setSetting(key, value) {
     if (settings.gravity && settings.perch) startWatcher();
     else stopWatcher();
   }
-  if (key === 'gravity' && !value && chase) endChase();
 }
 
 ipcMain.on('buddy-wardrobe', (_e, w) => {
@@ -686,6 +843,7 @@ ipcMain.on('buddy-wardrobe', (_e, w) => {
     unlocked: !!i.unlocked,
   })) : []);
   wardrobe = { tasks: Number(w.tasks) || 0, hat: String(w.hat || ''), color: String(w.color || 'classic'), hats: items(w.hats), colors: items(w.colors) };
+  badges = Array.isArray(w.badges) ? w.badges.slice(0, 60).map((b) => ({ label: String(b.label).slice(0, 70), earned: !!b.earned })) : [];
 });
 
 function wardrobeMenu() {
@@ -714,12 +872,28 @@ function buildMenu() {
     { label: 'How are you feeling?', click: () => send('buddy-ask-mood') },
     { label: 'How was today?', click: () => send('buddy-ask-day') },
     { label: ball ? 'Put the ball away' : 'Throw a ball', click: toggleBall },
+    { label: pomodoro ? 'Stop focus timer' : 'Start focus timer', click: () => { pomodoro = !pomodoro; send('buddy-pomodoro', pomodoro); } },
+    { label: 'Leave a note…', click: editNote },
     { label: 'Wardrobe', submenu: wardrobeMenu() },
+    {
+      label: `Achievements (${badges.filter((b) => b.earned).length}/${badges.length})`,
+      submenu: badges.length ? badges.map((b) => ({ label: (b.earned ? '★ ' : '☆ ') + b.label, enabled: b.earned })) : [{ label: 'None yet', enabled: false }],
+    },
+    {
+      label: 'Personality',
+      submenu: PERSONALITIES.map((id) => ({
+        label: id[0].toUpperCase() + id.slice(1),
+        type: 'radio',
+        checked: settings.personality === id,
+        click: () => setSetting('personality', id),
+      })),
+    },
     { type: 'separator' },
     toggle('Sound', 'sound'),
     toggle('Curious wandering', 'wander'),
     toggle('Gravity', 'gravity'),
     { ...toggle('Sit on windows', 'perch'), enabled: settings.gravity && process.platform === 'win32' },
+    toggle('Bed', 'bed'),
     {
       label: 'Start with Windows',
       type: 'checkbox',
@@ -729,7 +903,7 @@ function buildMenu() {
     { label: visible ? 'Hide buddy' : 'Show buddy', click: () => (visible ? win.hide() : win.showInactive()) },
     { type: 'separator' },
     { label: 'Reload config.json', click: () => { send('buddy-config-loaded', loadConfig()); sendSettings(); } },
-    { label: 'Quit Buddy', click: () => app.quit() },
+    { label: 'Quit Buddy', click: quitNicely },
   ]);
 }
 
@@ -858,15 +1032,18 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     loadSettings();
+    loadMemory();
     loadConfig();
     createWindow();
     createTray();
+    if (settings.bed) createBed();
     trackCursor();
     startWatcher();
     startServer();
   });
 
   app.on('before-quit', () => {
+    if (memoryTimer) flushMemory();
     if (watcher) { const child = watcher; watcher = null; child.kill(); }
   });
   app.on('window-all-closed', () => app.quit());

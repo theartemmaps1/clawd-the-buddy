@@ -1,5 +1,5 @@
 {
-  "volume": 0.5,
+  "volume": 0.3,
   "sleepAfterSec": 120,
   "sleepAfterSecSleepy": 40,
   "nightStart": 23,
@@ -10,7 +10,10 @@
   "wanderCooldownSec": 60,
   "contextWindow": 200000,
   "contextWarnAt": [70, 85, 95],
-
+  "focusMinutes": 25,
+  "focusBreakMinutes": 5,
+  "seasons": 1,
+  "southern": 0,
   "unlocks": {
     "sprout": 10,
     "cap": 50,
@@ -23,33 +26,64 @@
     "gold": 1500,
     "crown": 2500
   },
-
   "lines": {
     "poke": {
-      "idle": ["Hey!", "Boop.", "That tickles!", "Yes? Yes?", "Poke received.", "*wiggles*", "What was that for?", "Ooh, is that a mouse?"],
-      "thinking": ["Shh, thinking…", "Hold that thought.", "Hmm? Oh. Hi."],
-      "working": ["Busy! …but hi.", "Typing here!", "One sec, one sec."],
-      "happy": ["Hehe!", "Yay!", "High five!"],
-      "sad": ["…thanks. I needed that.", "It was not my fault."],
-      "night": ["Mmh… it's so late…", "*sleepy blink*", "Shhh. Night time."]
+      "idle": [
+        "Hey!",
+        "Boop.",
+        "That tickles!",
+        "Yes? Yes?",
+        "Poke received.",
+        "*wiggles*",
+        "What was that for?",
+        "Ooh, is that a mouse?",
+        "Boop yourself.",
+        "I felt that.",
+        "Again? Okay!",
+        "Hi hi hi.",
+        "You rang?",
+        "That's my good side.",
+        "Careful, I'm pixelated.",
+        "Eee!"
+      ],
+      "thinking": ["Shh, thinking…", "Hold that thought.", "Hmm? Oh. Hi.", "Almost had it…", "Thinking is hard, okay?", "Shh, the idea is loading."],
+      "working": [
+        "Busy! …but hi.",
+        "Typing here!",
+        "One sec, one sec.",
+        "Can't talk. Coding.",
+        "Later! Promise.",
+        "Hands full! All two of them.",
+        "In the zone."
+      ],
+      "happy": ["Hehe!", "Yay!", "High five!", "We did good!", "Woo!", "Best team."],
+      "sad": ["…thanks. I needed that.", "It was not my fault.", "I'll be okay.", "Hug? …pixel hug?", "Next one's ours."],
+      "night": ["Mmh… it's so late…", "*sleepy blink*", "Shhh. Night time.", "Zzz—oh. Hi.", "Whisper, please.", "The moon says hi."]
     },
     "moodPoke": {
-      "joyful": ["Hehe! Again!", "Boop back!", "♥", "Best day."],
-      "grumpy": ["Stop it.", "What.", "Hmph.", "I'm not talking to you."],
-      "tired": ["Mmh… five more minutes.", "*yawn* …what?"],
-      "hungry": ["Did you bring food?", "Poke me with a snack next time."],
-      "lonely": ["You're here!", "Oh! Hi! Hi!", "I missed you!"],
-      "worried": ["Is it going to be okay?", "Eep!"],
-      "glum": ["…hi.", "Thanks for checking in."]
+      "joyful": ["Hehe! Again!", "Boop back!", "♥", "Best day.", "Life is good!", "I could do this all day.", "You're my favourite human."],
+      "grumpy": ["Stop it.", "What.", "Hmph.", "I'm not talking to you.", "Do you mind.", "Count to ten. Then don't.", "I am ignoring you."],
+      "tired": ["Mmh… five more minutes.", "*yawn* …what?", "Too… many… pokes…", "Wake me when it's done.", "Zzz—what."],
+      "hungry": ["Did you bring food?", "Poke me with a snack next time.", "Is that a snack? No? Oh.", "Feed me and we'll talk.", "My tummy says hi."],
+      "lonely": ["You're here!", "Oh! Hi! Hi!", "I missed you!", "Don't go again!", "Stay a while?", "I saved your spot."],
+      "worried": ["Is it going to be okay?", "Eep!", "Hold me.", "Tell me it's fine.", "Are the tests okay?"],
+      "glum": ["…hi.", "Thanks for checking in.", "Could be worse, I guess.", "A poke helps. A little."]
     },
     "muse": {
-      "joyful": ["♪ la la la ♪", "Today is a good day.", "I like it here."],
-      "grumpy": ["Hmph.", "…"],
-      "tired": ["*yawn*", "So… sleepy…"],
-      "hungry": ["*tummy rumbles*", "Is it snack time yet?", "I could really eat a file."],
-      "lonely": ["…hello?", "Is anyone there?", "I could use a poke."],
-      "worried": ["What if it breaks again?", "I hope the tests pass…"],
-      "glum": ["*sigh*", "It'll go better next time."]
+      "joyful": [
+        "♪ la la la ♪",
+        "Today is a good day.",
+        "I like it here.",
+        "I love a tidy diff.",
+        "Everything is working and I am suspicious.",
+        "*happy wiggle*"
+      ],
+      "grumpy": ["Hmph.", "…", "I am not sulking. I'm resting angrily.", "*pointed silence*"],
+      "tired": ["*yawn*", "So… sleepy…", "My pixels are heavy.", "Five-minute nap? Ten?"],
+      "hungry": ["*tummy rumbles*", "Is it snack time yet?", "I could really eat a file.", "A small .txt would do.", "I dreamt of a zip file."],
+      "lonely": ["…hello?", "Is anyone there?", "I could use a poke.", "I named the cursor. It left.", "Even the taskbar is quiet."],
+      "worried": ["What if it breaks again?", "I hope the tests pass…", "Did we save? We saved, right?", "Fingers crossed. All… none of them."],
+      "glum": ["*sigh*", "It'll go better next time.", "Tomorrow is a new build.", "Bugs happen. To us. A lot."]
     },
     "museAny": [
       "I wonder what that button does…",
@@ -59,29 +93,71 @@
       "What are we building next?",
       "Where does the cursor go at night?",
       "I counted my legs again. Still four.",
-      "If I had a keyboard I'd help. Probably."
+      "If I had a keyboard I'd help. Probably.",
+      "Tabs or spaces? I won't tell.",
+      "I wonder what Claude is thinking.",
+      "Is the taskbar comfy? It is.",
+      "What does a semicolon taste like?",
+      "I should learn to whistle.",
+      "One day I'll catch that cursor.",
+      "Do you think the recycle bin is lonely?",
+      "I like this wallpaper.",
+      "Somewhere, a test is passing.",
+      "I wonder how tall I am in real pixels.",
+      "What's behind the desktop?",
+      "If I blink, does the code change?"
     ],
-    "museNight": ["It's late… shouldn't we be asleep?", "The screen is so bright at night.", "Everyone else is asleep, you know.", "Just… resting my eyes…"],
-    "dreams": ["…green tests…", "…no, not the semicolon…", "…five more commits…", "zzz… snacks…", "…it works on my machine…", "…mmh… cursor…"],
-    "yawns": ["*yaaawn*", "*yawn* …so sleepy.", "Is it bedtime yet?", "*yawn* Just one more task?"],
+    "museNight": [
+      "It's late… shouldn't we be asleep?",
+      "The screen is so bright at night.",
+      "Everyone else is asleep, you know.",
+      "Just… resting my eyes…",
+      "The fans are so quiet at night.",
+      "Shh… the code is sleeping.",
+      "Is that the moon or a monitor?",
+      "One more commit, then bed. Right?"
+    ],
+    "dreams": [
+      "…green tests…",
+      "…no, not the semicolon…",
+      "…five more commits…",
+      "zzz… snacks…",
+      "…it works on my machine…",
+      "…mmh… cursor…",
+      "…merge conflict… no…",
+      "…so many snacks…",
+      "…all tests green…",
+      "…chasing the ball…",
+      "…who moved my taskbar…",
+      "…just one more poke…"
+    ],
+    "yawns": [
+      "*yaaawn*",
+      "*yawn* …so sleepy.",
+      "Is it bedtime yet?",
+      "*yawn* Just one more task?",
+      "*yaaaawn* …excuse me.",
+      "My eyes are doing the thing.",
+      "*stretch* …nope, still sleepy."
+    ],
     "moodArrives": {
-      "joyful": ["I feel great!", "♪ la la la ♪"],
-      "grumpy": ["Hmph.", "Okay, that's enough."],
-      "tired": ["*yawn* I'm beat."],
-      "hungry": ["My tummy's rumbling…", "Got a file I could eat? Drag one onto me."],
-      "lonely": ["…hello? Anyone?", "It's quiet. Too quiet."],
-      "worried": ["I have a bad feeling about this…"],
-      "glum": ["*sigh*"]
+      "joyful": ["I feel great!", "♪ la la la ♪", "What a day!", "I'm in such a good mood!"],
+      "grumpy": ["Hmph.", "Okay, that's enough.", "That's it. I'm cross.", "I need a minute."],
+      "tired": ["*yawn* I'm beat.", "Running on fumes…", "So… many… tasks…"],
+      "hungry": ["My tummy's rumbling…", "Got a file I could eat? Drag one onto me.", "Snack o'clock?", "I'm wasting away over here."],
+      "lonely": ["…hello? Anyone?", "It's quiet. Too quiet.", "Did everyone go home?", "I miss the clicking."],
+      "worried": ["I have a bad feeling about this…", "Something feels off…", "Uh oh. Uh oh uh oh."],
+      "glum": ["*sigh*", "Not our best run.", "Meh."]
     },
     "moodReport": {
-      "content": ["I'm good. Just watching."],
-      "joyful": ["Really happy right now!"],
-      "grumpy": ["Annoyed. Too much poking. (Pets help.)"],
-      "worried": ["Nervous… things keep failing."],
-      "tired": ["So sleepy. It's been a long session."],
-      "hungry": ["Hungry! Drag a file or some text onto me."],
-      "lonely": ["A bit lonely. Nobody has said hi in ages."],
-      "glum": ["Kind of down. Rough run."]
+      "content": ["I'm good. Just watching.", "Pretty content. Nice and calm.", "All good here!"],
+      "joyful": ["Really happy right now!", "On top of the world!"],
+      "grumpy": ["Annoyed. Too much poking. (Pets help.)", "Cranky. Give me a minute (or a pet)."],
+      "worried": ["Nervous… things keep failing.", "A bit anxious about all those errors."],
+      "tired": ["So sleepy. It's been a long session.", "Worn out. A nap would fix it."],
+      "hungry": ["Hungry! Drag a file or some text onto me.", "Starving. A file would be lovely."],
+      "lonely": ["A bit lonely. Nobody has said hi in ages.", "Lonely. Come say hi more often?"],
+      "glum": ["Kind of down. Rough run.", "A little blue. It'll pass."]
     }
   }
 }
