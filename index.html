@@ -16,9 +16,14 @@
   }
   #bubble.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
 
-  #buddy { width: 150px; height: 150px; overflow: visible; shape-rendering: crispEdges; cursor: grab; touch-action: none; }
+  /* --size shrinks while it is young (and in quiet mode); the margin keeps its feet on the floor */
+  #buddy { width: var(--size, 150px); height: var(--size, 150px); margin-bottom: calc((var(--size, 150px) - 150px) * .2); flex: none; overflow: visible; shape-rendering: crispEdges; cursor: grab; touch-action: none; }
   #buddy .ghost { pointer-events: none; }
   .skin { fill: var(--skin, #d97757); transition: fill .3s, filter .2s; }
+  /* friendship shows: a little brighter at each level, a faint blush, then sparkles */
+  [data-bond="2"] .skin { filter: saturate(1.08) brightness(1.02); }
+  [data-bond="3"] .skin, [data-bond="4"] .skin { filter: saturate(1.16) brightness(1.05); }
+  [data-bond="3"] .blush, [data-bond="4"] .blush { opacity: .4; }
   .eye, .eye-happy rect { fill: #1f1410; }
   .eye { transform-box: fill-box; transform-origin: center; transition: transform .15s; }
   .eye, .eye-happy { translate: var(--lx, 0px) var(--ly, 0px); } /* follows the cursor */
@@ -75,7 +80,199 @@
   .mood-tired .skin, .mood-lonely .skin, .mood-glum .skin, .mood-hungry .skin { filter: saturate(.7); }
   .mood-tired.idle #wrap, .mood-lonely.idle #wrap, .mood-glum.idle #wrap { animation-duration: 5s; }
 
+  /* the stronger feelings get a mouth, and eyes of their own */
+  .face { fill: #1f1410; }
+  .face, .tear, .eye-shine, .eye-heart, .mark, .sparkle, .note-fx, .drop { opacity: 0; }
+  .face, .eye-shine, .eye-heart { transition: opacity .3s; }
+  .eye-shine { fill: #fff; translate: var(--lx, 0px) var(--ly, 0px); }
+  .eye-heart { fill: #ff5a7a; }
+  .tear { fill: #6cc8ff; transform-box: fill-box; }
+  .mark { fill: #ffcf3a; font: bold 40px monospace; stroke: #1f1410; stroke-width: 3px; paint-order: stroke; }
+  .sparkle { fill: #fff3b0; }
+  .note-fx { fill: #fff; font: bold 24px monospace; }
+  .drop { fill: #6cc8ff; transform-box: fill-box; }
+
+  .mood-joyful .m-smile, .mood-proud .m-smile, .mood-loving .m-smile { opacity: 1; }
+  .mood-glum .m-frown, .mood-lonely .m-frown, .mood-grumpy .m-frown, .mood-jealous .m-frown { opacity: 1; }
+  .mood-bored .m-flat { opacity: 1; }
+  .mood-worried .m-wavy, .mood-scared .m-wavy, .mood-embarrassed .m-wavy { opacity: 1; }
+
+  .mood-excited .m-o, .mood-excited .eye-shine { opacity: 1; }
+  .mood-excited .blush      { opacity: .7; }
+  .mood-excited.idle #wrap  { animation-duration: .6s; }
+  .mood-proud .eye          { opacity: 0; }
+  .mood-proud .eye-happy    { opacity: 1; }
+  .mood-proud #wrap         { scale: 1.05; }
+  .mood-proud .skin         { filter: brightness(1.1) saturate(1.15); }
+  .mood-loving .eye         { opacity: 0; }
+  .mood-loving .eye-heart   { opacity: 1; }
+  .mood-loving .blush       { opacity: .9; }
+  .mood-loving #heart       { animation: float 2.6s ease-out infinite; }
+  .mood-scared #wrap        { animation: shiver .12s linear infinite; scale: .95; }
+  .mood-scared .eye         { animation: none; transform: scaleY(1.4); }
+  .mood-scared .brow-sad, .mood-scared #sweat { opacity: 1; }
+  .mood-scared .skin        { filter: saturate(.55) brightness(1.1); }
+  .mood-embarrassed .blush  { opacity: 1; }
+  .mood-embarrassed .eye    { animation: none; transform: translate(-5px, 5px); }
+  .mood-embarrassed #sweat  { opacity: 1; }
+  .mood-jealous .lid, .mood-bored .lid { opacity: 1; }
+  .mood-jealous .eye        { animation: none; transform: translateX(6px); }
+  .mood-jealous .brow-angry { opacity: .8; }
+  .mood-jealous .skin       { filter: hue-rotate(40deg) saturate(.8); } /* green with envy */
+  .mood-bored.idle #wrap    { animation-duration: 6s; }
+  .mood-bored .skin         { filter: saturate(.75); }
+  /* hurt: small, drooping, and in tears */
+  .mood-hurt .brow-sad, .mood-hurt .lid, .mood-hurt .m-frown { opacity: 1; }
+  .mood-hurt .skin          { filter: saturate(.5) brightness(.96); }
+  .mood-hurt #wrap          { scale: .93; }
+  .mood-hurt.idle #wrap     { animation-duration: 5s; }
+  .mood-hurt .arm           { transform: translateY(8px); }
+  .mood-hurt .eye           { animation: none; transform: translateY(5px) scaleY(.7); }
+  .cry .tear                { animation: drip 1.1s linear infinite; }
+  .cry .tear + .tear        { animation-delay: .5s; }
+
+  [data-bond="4"].idle .sparkle rect { animation: twinkle 2.4s ease-in-out infinite; }
+  [data-bond="4"].idle .sparkle rect:nth-child(2) { animation-delay: .6s; }
+  [data-bond="4"].idle .sparkle rect:nth-child(3) { animation-delay: 1.2s; }
+  [data-bond="4"].idle .sparkle rect:nth-child(4) { animation-delay: 1.8s; }
+  body[class*="fx-"] .sparkle rect { animation: none !important; }
+
   .fx-hop #wrap { animation: hop .5s ease-in-out; }
+
+  /* a start, a puzzled tilt, a shake of the head, a grimace */
+  .fx-surprise #wrap { animation: hop .3s ease-out; }
+  .fx-surprise .eye  { animation: none; transform: scaleY(1.4); }
+  .fx-surprise .mark-bang, .fx-surprise .m-o { opacity: 1; }
+  .fx-quest #wrap    { rotate: 9deg; }
+  .fx-quest .mark-q  { opacity: 1; }
+  .fx-shake #wrap    { animation: headshake .2s linear 8; }
+  .fx-shake .eye     { animation: none; transform: scaleY(.15); }
+  .fx-shake .drop-l  { animation: puffL .5s ease-out 3; }
+  .fx-shake .drop-r  { animation: puffR .5s ease-out 3; }
+  .fx-yuck #wrap     { animation: shiver .15s linear 6; }
+  .fx-yuck .eye      { animation: none; transform: scaleY(.3); }
+  .fx-yuck .m-wavy   { opacity: 1; }
+
+  /* tricks */
+  .fx-jump #wrap  { animation: bigjump .85s ease-out; }
+  .fx-jump .arm   { transform: translateY(-20px); }
+  .fx-jump .eye   { opacity: 0; }
+  .fx-jump .eye-happy { opacity: 1; }
+  .fx-twirl #wrap { animation: twirl .9s ease-in-out; rotate: 0deg; }
+  .fx-dance #wrap { animation: sway .5s ease-in-out infinite; rotate: 0deg; }
+  .fx-dance .arm  { animation: armswing .25s ease-in-out infinite alternate; }
+  .fx-dance .legA { animation: step .25s steps(2) infinite; }
+  .fx-dance .legB { animation: step .25s steps(2) infinite reverse; }
+  .fx-dance .eye  { opacity: 0; }
+  .fx-dance .eye-happy { opacity: 1; }
+  .fx-dance .note-fx, body[data-hobby="hum"] .note-fx { animation: float 1.4s ease-out infinite; }
+  .fx-dance .note-fx + .note-fx, body[data-hobby="hum"] .note-fx + .note-fx { animation-delay: .7s; }
+  /* sitting: for the sit trick, and while knitting through a long command */
+  .fx-sit #wrap, body[data-wait="knit"] #wrap { animation: none; transform: translateY(18px); }
+  .fx-sit .legA, .fx-sit .legB, body[data-wait="knit"] .legA, body[data-wait="knit"] .legB { animation: none; transform-origin: top; transform: scaleY(.4); }
+  .fx-sit .shadow, body[data-wait="knit"] .shadow { transform: translateY(-18px); }
+  .fx-hide #wrap { animation: none; }
+  .fx-hide .eye  { animation: none; transform: scaleY(1.3); }
+
+  /* waiting out a long command */
+  .wait, .moment, .plan-item, .hobby, .dream-i { display: none; }
+  body[data-wait="knit"] .wait-knit { display: block; }
+  body[data-wait="knit"] .needles { animation: type .4s ease-in-out infinite; transform-origin: 100px 110px; }
+  body[data-wait="tap"] #wrap { animation: none; }
+  body[data-wait="tap"] .legA { animation: none; }
+  body[data-wait="tap"] .legB { animation: tapfoot .45s steps(2) infinite; }
+  body[data-wait="tap"] .lid  { opacity: 1; }
+
+  /* things held up for a moment */
+  body[data-moment="flag"] .mo-flag     { display: block; animation: plant .4s ease-out; }
+  body[data-moment="plane"] .mo-plane   { display: block; animation: flyoff 1.6s ease-in forwards; }
+  body[data-moment="popper"] .mo-popper { display: block; animation: hop .4s ease-out 2; }
+  body[data-moment="tea"] .mo-tea, body[data-moment="water"] .mo-water { display: block; }
+  body[data-moment="gift"] .mo-gift { display: block; animation: hop .6s ease-in-out infinite; }
+  .steam { fill: #fff; animation: float 1.8s ease-out infinite; }
+  .steam + .steam { animation-delay: .9s; }
+
+  /* plan mode: a pencil behind the ear, and a blueprint when its hands are free */
+  body[data-plan="1"] .pencil { display: block; }
+  body[data-plan="1"].thinking:not([class*="fx-"]) .blueprint, body[data-plan="1"].idle:not([class*="fx-"]) .blueprint { display: block; }
+
+  /* hobbies */
+  .fx-hobby .season-item { display: none !important; }
+  body[data-hobby="read"] .prop-book { display: block; }
+  body[data-hobby="read"] .eye { animation: none; transform: translateY(5px); }
+  body[data-hobby="juggle"] .h-juggle { display: block; }
+  body[data-hobby="juggle"] .jug { animation: juggle 1.2s linear infinite; }
+  body[data-hobby="juggle"] .jug:nth-child(2) { animation-delay: -.4s; }
+  body[data-hobby="juggle"] .jug:nth-child(3) { animation-delay: -.8s; }
+  body[data-hobby="juggle"] .arm { animation: armswing .3s ease-in-out infinite alternate; }
+  body[data-hobby="juggle"] .eye, body[data-hobby="stargaze"] .eye { animation: none; transform: translateY(-6px); }
+  body[data-hobby="stargaze"] .h-stars { display: block; }
+  .h-stars rect { fill: #fff7c2; animation: twinkle 1.8s ease-in-out infinite; }
+  .h-stars rect:nth-child(2n) { animation-delay: .6s; }
+  .h-stars rect:nth-child(3n) { animation-delay: 1.1s; }
+  body[data-hobby="water"] .h-water, body[data-hobby="water"] .h-plant { display: block; }
+  body[data-hobby="water"] .wdrop { animation: drip .6s linear infinite; }
+  .p1, .p2, .p3 { display: none; }
+  body[data-plant="1"] .p1, body[data-plant="2"] .p1, body[data-plant="2"] .p2,
+  body[data-plant="3"] .p1, body[data-plant="3"] .p2, body[data-plant="3"] .p3 { display: block; }
+  body[data-hobby="hum"] #wrap { animation: sway 1.2s ease-in-out infinite; }
+  body[data-hobby="exercise"] #wrap { animation: squat .8s ease-in-out infinite; }
+  body[data-hobby="exercise"] .arm  { transform: translateY(-20px); }
+
+  /* dreams: a thought bubble showing something from the day */
+  .dream { opacity: 0; transition: opacity .4s; }
+  body[data-dream]:not([data-dream=""]) .dream { opacity: 1; }
+  body[data-dream]:not([data-dream=""]) .zz { animation: none; }
+  body[data-dream="test"] .d-test, body[data-dream="bug"] .d-bug, body[data-dream="file"] .d-file, body[data-dream="commit"] .d-commit,
+  body[data-dream="snack"] .d-snack, body[data-dream="ball"] .d-ball, body[data-dream="globe"] .d-globe, body[data-dream="heart"] .d-heart { display: block; }
+
+  /* quiet mode: small and silent */
+  /* growing up: small, round and big-eyed at first */
+  body[data-age="baby"] { --size: 96px; }
+  body[data-age="kid"]  { --size: 120px; }
+  body[data-age="teen"] { --size: 138px; }
+  body[data-age="baby"] .eye { scale: 1.35; }
+  body[data-age="kid"] .eye  { scale: 1.15; }
+  body[data-age="baby"] .skin rect { rx: 9px; }
+  body[data-age="kid"] .skin rect  { rx: 4px; }
+  [data-age="baby"] .blush { opacity: .55; }
+  .curl { display: none; }
+  body[data-age="baby"] .curl { display: block; }
+  body.quiet { --size: 66px; }
+  body.quiet[data-age="baby"] { --size: 50px; }
+
+  /* sulking: back turned, one eye peeking over the shoulder it is facing */
+  .peek, .backseam { display: none; }
+  .peek { fill: #1f1410; }
+  .backseam { fill: rgba(0,0,0,.12); }
+  .sulk .eye, .sulk .eye-happy, .sulk .brow, .sulk .face, .sulk .lid, .sulk .blush { opacity: 0 !important; }
+  .sulk .backseam { display: block; }
+  .sulk[data-sulk="l"] .peek-l, .sulk[data-sulk="r"] .peek-r { display: block; }
+  .sulk #wrap { animation: none; rotate: 0deg; }
+  .sulk .arm  { transform: translateY(6px); }
+
+  /* high five: for a moment after a task, an arm is up and waiting */
+  .five { display: none; fill: #ffd84a; }
+  body[data-five="1"] .five { display: block; animation: twinkle .5s ease-in-out infinite; }
+  body[data-five="1"] .armR { transform-origin: left center; animation: wave .3s ease-in-out infinite; }
+
+  /* the sign it holds up when Claude asks permission */
+  #sign { display: none; position: relative; max-width: 190px; margin-bottom: 16px; padding: 5px 8px 6px; background: #fff6df; color: #3a2a10; border: 3px solid #8a5a2b; border-radius: 4px; font: 11px/1.3 Consolas, ui-monospace, monospace; word-break: break-all; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
+  #sign.show { display: block; }
+  #sign b { display: block; margin-bottom: 2px; font: bold 10px system-ui, sans-serif; color: #8a5a2b; }
+  #sign::after { content: ''; position: absolute; left: 50%; bottom: -19px; width: 5px; height: 16px; margin-left: -2px; background: #8a5a2b; }
+
+  /* a friend's buddy, come to visit */
+  #visitor { position: absolute; left: 2px; bottom: 30px; width: 64px; display: none; flex-direction: column; align-items: center; cursor: pointer; }
+  #visitor.here { display: flex; animation: walkin 1.6s steps(8); }
+  #visitor.leaving { animation: walkout 1.6s steps(8) forwards; }
+  #visitor span { max-width: 64px; margin-bottom: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: bold 9px system-ui, sans-serif; color: #fff; text-shadow: 0 1px 2px #000, 0 0 3px #000; }
+  #visitor svg { display: block; shape-rendering: crispEdges; overflow: visible; animation: bob 1s ease-in-out infinite; }
+  #visitor.talk svg { animation: hop .4s ease-in-out 2; }
+  body[data-visiting="1"] #minis { bottom: 112px; }
+  @keyframes walkin  { from { transform: translateX(-90px) } to { transform: translateX(0) } }
+  @keyframes walkout { to { transform: translateX(-90px) } }
+  .quiet #minis, .quiet #helpers { opacity: .6; }
 
   /* ---- night: droopy eyes and a nightcap ---- */
   .nightcap { display: none; }
@@ -83,7 +280,9 @@
   .night .hat { display: none !important; }
   .night .nightcap { display: block; }
   .fx-pet .lid, .fx-spin .lid, .fx-sleep .lid, .fx-dizzy .lid, .fx-eat .lid, .fx-held .lid, .fx-fly .lid,
-  .fx-fall .lid, .fx-want .lid, .fx-peer .lid, .fx-yawn .lid, .fx-stretch .lid { opacity: 0; }
+  .fx-fall .lid, .fx-want .lid, .fx-peer .lid, .fx-yawn .lid, .fx-stretch .lid, .fx-surprise .lid, .fx-jump .lid, .fx-dance .lid { opacity: 0; }
+  /* feelings and hobbies with eyes of their own keep them, even when it is late */
+  body.fx-hobby .lid, body.mood-proud .lid, body.mood-loving .lid, body.mood-excited .lid, body.mood-scared .lid { opacity: 0; }
 
   /* thinking: three dots drift up like a thought bubble */
   .dots rect { fill: #fff; opacity: 0; }
@@ -110,8 +309,8 @@
   .season-item, .hourglass { display: none; }
   body[data-season="winter"] .scarf, body[data-season="spring"] .flower, body[data-season="autumn"] .leaf { display: block; }
   body[data-season="summer"].idle:not([class*="fx-"]):not([class*="mood-"]):not(.night) .shades { display: block; }
-  body[data-holiday="santa"] .santa, body[data-holiday="pumpkin"] .pumpkin { display: block; }
-  body[data-holiday="santa"] .hat { display: none; }
+  body[data-holiday="santa"] .santa, body[data-holiday="pumpkin"] .pumpkin, body[data-holiday="bday"] .bday { display: block; }
+  body[data-holiday="santa"] .hat, body[data-holiday="bday"] .hat { display: none; }
   .night .santa, .fx-sleep .shades { display: none !important; }
   body[data-focus="1"] .hourglass { display: block; }
   body[data-focus="1"] .hourglass .sand { animation: trickle 2s steps(4) infinite; }
@@ -153,6 +352,28 @@
   .fx-pet .eye    { opacity: 0; }
   .fx-pet .eye-happy { opacity: 1; }
   .fx-pet #heart  { animation: float 1.1s ease-out 2; }
+
+  /* a hug for you, when your day is going badly */
+  .fx-hug #wrap   { animation: bob .8s ease-in-out infinite; scale: 1.06; }
+  .fx-hug .arm    { transform: translateY(-12px); }
+  .fx-hug .eye    { opacity: 0; }
+  .fx-hug .eye-happy { opacity: 1; }
+  .fx-hug .blush  { opacity: .8; }
+  .fx-hug .lid, .fx-hug #sweat { opacity: 0; }
+  .fx-hug .skin   { filter: brightness(1.05); }
+  .fx-hug #heart  { animation: float 1.3s ease-out 2; }
+  .fx-hug .tear   { animation: none; }
+
+  /* tapping on the glass for attention */
+  .fx-knock #wrap { animation: knock .5s ease-in-out 3; }
+  .fx-knock .arm  { transform: translateY(-16px); }
+  .fx-knock .eye  { animation: none; transform: scaleY(1.3); }
+  .fx-knock .lid  { opacity: 0; }
+
+  /* the teenage eye roll */
+  .fx-eyeroll .eye    { animation: eyeroll .9s ease-in-out; translate: 0 0; }
+  .fx-eyeroll .lid    { opacity: 0; }
+  .fx-eyeroll .m-flat { opacity: 1; }
 
   .fx-spin #wrap  { transform-origin: 100px 110px; animation: flip .7s ease-in-out; }
   .fx-spin .eye   { opacity: 0; }
@@ -210,6 +431,43 @@
   .mini.alert .mskin { filter: saturate(1.35) brightness(1.08) hue-rotate(-8deg); }
   .mini.sad .mskin   { filter: saturate(.45); }
 
+  /* helpers: one little one per subagent, popping out of the buddy and back */
+  #helpers { position: absolute; right: 8px; bottom: 34px; display: flex; flex-direction: column-reverse; align-items: flex-end; gap: 4px; pointer-events: none; }
+  .helper { width: 18px; height: 14px; animation: popout .45s ease-out; }
+  .helper svg { width: 18px; height: 14px; display: block; shape-rendering: crispEdges; overflow: visible; animation: bob .5s ease-in-out infinite; }
+  .helper .mskin { filter: brightness(1.25) saturate(.8); }
+  .helper.out { animation: popin .4s ease-in forwards; }
+
+  /* rock, paper, scissors */
+  #panel { display: none; gap: 5px; margin-bottom: 6px; padding: 6px; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+  #panel.show { display: flex; }
+  #panel button { width: 34px; height: 34px; padding: 0; font: 18px system-ui, sans-serif; border: 2px solid #d97757; border-radius: 9px; background: #fff7f2; cursor: pointer; }
+  #panel button:hover { background: #ffe1d4; }
+  #panel button.word { width: auto; padding: 0 9px; font-size: 13px; }
+  #panel button.x { width: 22px; font-size: 12px; color: #777; border-color: #ccc; background: #fff; }
+
+  /* the week's bar chart, inside the speech bubble */
+  .chart { display: flex; align-items: flex-end; gap: 3px; width: 150px; height: 46px; margin-top: 6px; }
+  .chart div { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; font-size: 9px; color: #777; }
+  .chart i { display: block; width: 100%; background: #ecb29d; border-radius: 2px 2px 0 0; }
+  .chart .now i { background: #d97757; }
+
+  @keyframes popout   { from { opacity: 0; transform: translate(-70px, 10px) scale(.2) } to { opacity: 1; transform: translate(0, 0) scale(1) } }
+  @keyframes popin    { to { opacity: 0; transform: translate(-70px, 10px) scale(.2) } }
+  @keyframes knock    { 0%,100% { scale: 1 } 50% { scale: 1.12 } }
+  @keyframes eyeroll  { 0%,100% { transform: translate(0,0) } 25% { transform: translate(-6px,-5px) } 50% { transform: translate(0,-8px) } 75% { transform: translate(6px,-5px) } }
+  @keyframes shiver   { 0%,100% { transform: translateX(-2px) } 50% { transform: translateX(2px) } }
+  @keyframes headshake { 0%,100% { transform: rotate(-7deg) } 50% { transform: rotate(7deg) } }
+  @keyframes bigjump  { 0% { transform: translateY(0) scale(1.12,.84) } 20% { transform: translateY(-20px) scale(.94,1.1) } 50% { transform: translateY(-64px) scale(1,1) } 85% { transform: translateY(0) scale(1.1,.88) } 100% { transform: translateY(0) scale(1,1) } }
+  @keyframes twirl    { 0%,50%,100% { transform: scaleX(1) } 25%,75% { transform: scaleX(-1) } }
+  @keyframes armswing { from { transform: translateY(-4px) } to { transform: translateY(-18px) } }
+  @keyframes tapfoot  { 0% { transform: translateY(0) } 100% { transform: translateY(-6px) } }
+  @keyframes twinkle  { 0%,100% { opacity: 0 } 50% { opacity: 1 } }
+  @keyframes drip     { 0% { opacity: 1; transform: translateY(0) } 100% { opacity: 0; transform: translateY(14px) } }
+  @keyframes plant    { from { transform: translateY(-34px) } to { transform: translateY(0) } }
+  @keyframes flyoff   { 0% { opacity: 1; transform: translate(60px, 70px) } 100% { opacity: 0; transform: translate(250px, -50px) } }
+  @keyframes juggle   { 0% { transform: translate(34px, 62px) } 25% { transform: translate(64px, 10px) } 50% { transform: translate(94px, -8px) } 75% { transform: translate(124px, 10px) } 100% { transform: translate(154px, 62px) } }
+  @keyframes squat    { 0%,100% { transform: scale(1,1) } 50% { transform: scale(1.08,.82) } }
   @keyframes trickle { 0% { opacity: 1 } 100% { opacity: .35 } }
   @keyframes dot     { 0%,100% { opacity: 0; transform: translateY(4px) } 40%,60% { opacity: .95; transform: translateY(0) } }
   @keyframes yawn    { 0%,100% { transform: scale(1,1) } 30%,70% { transform: scale(.97,1.08) } }
@@ -244,10 +502,14 @@
   <div id="confetti"></div>
   <div id="note" title="Click when it's done"></div>
   <input id="noteInput" maxlength="80" spellcheck="false" />
+  <div id="helpers"></div>
+  <div id="visitor"></div>
   <div id="bubble"></div>
+  <div id="sign" title="Click to go to Claude"></div>
+  <div id="panel"></div>
   <svg id="buddy" viewBox="0 0 200 200">
     <g id="wrap">
-      <rect class="ghost" x="45" y="164" width="110" height="6" fill="rgba(0,0,0,.18)" />
+      <rect class="ghost shadow" x="45" y="164" width="110" height="6" fill="rgba(0,0,0,.18)" />
       <g class="skin">
         <g class="legA"><rect x="50" y="130" width="10" height="30" /><rect x="120" y="130" width="10" height="30" /></g>
         <g class="legB"><rect x="70" y="130" width="10" height="30" /><rect x="140" y="130" width="10" height="30" /></g>
@@ -257,6 +519,10 @@
       <rect class="eye" x="70" y="80" width="10" height="20" />
       <rect class="eye" x="120" y="80" width="10" height="20" />
       <rect class="lid skin" x="68" y="78" width="14" height="11" /><rect class="lid skin" x="118" y="78" width="14" height="11" />
+      <g class="curl skin ghost"><rect x="96" y="50" width="6" height="10" /><rect x="100" y="45" width="10" height="6" /></g>
+      <rect class="backseam ghost" x="56" y="98" width="88" height="4" />
+      <rect class="peek peek-l ghost" x="43" y="84" width="6" height="14" /><rect class="peek peek-r ghost" x="151" y="84" width="6" height="14" />
+      <g class="five ghost"><rect x="188" y="50" width="6" height="20" /><rect x="181" y="57" width="20" height="6" /></g>
       <g class="brow brow-angry">
         <rect x="62" y="67" width="10" height="5" /><rect x="72" y="72" width="10" height="5" />
         <rect x="118" y="72" width="10" height="5" /><rect x="128" y="67" width="10" height="5" />
@@ -270,6 +536,24 @@
         <rect x="60" y="90" width="10" height="10" /><rect x="70" y="80" width="10" height="10" /><rect x="80" y="90" width="10" height="10" />
         <rect x="110" y="90" width="10" height="10" /><rect x="120" y="80" width="10" height="10" /><rect x="130" y="90" width="10" height="10" />
       </g>
+
+      <!-- faces for the stronger feelings -->
+      <g class="face m-smile ghost"><rect x="90" y="103" width="4" height="4" /><rect x="94" y="107" width="12" height="4" /><rect x="106" y="103" width="4" height="4" /></g>
+      <g class="face m-frown ghost"><rect x="90" y="108" width="4" height="4" /><rect x="94" y="104" width="12" height="4" /><rect x="106" y="108" width="4" height="4" /></g>
+      <rect class="face m-o ghost" x="95" y="102" width="10" height="9" />
+      <rect class="face m-flat ghost" x="92" y="106" width="16" height="4" />
+      <g class="face m-wavy ghost"><rect x="88" y="107" width="6" height="4" /><rect x="94" y="103" width="6" height="4" /><rect x="100" y="107" width="6" height="4" /><rect x="106" y="103" width="6" height="4" /></g>
+      <g class="eye-shine ghost"><rect x="70" y="80" width="5" height="6" /><rect x="120" y="80" width="5" height="6" /></g>
+      <g class="eye-heart ghost">
+        <rect x="67" y="82" width="6" height="6" /><rect x="77" y="82" width="6" height="6" /><rect x="67" y="86" width="16" height="6" /><rect x="70" y="92" width="10" height="4" /><rect x="73" y="96" width="4" height="3" />
+        <rect x="117" y="82" width="6" height="6" /><rect x="127" y="82" width="6" height="6" /><rect x="117" y="86" width="16" height="6" /><rect x="120" y="92" width="10" height="4" /><rect x="123" y="96" width="4" height="3" />
+      </g>
+      <rect class="tear ghost" x="72" y="102" width="6" height="9" /><rect class="tear ghost" x="122" y="102" width="6" height="9" />
+      <text class="mark mark-bang ghost" x="14" y="60">!</text><text class="mark mark-q ghost" x="12" y="60">?</text>
+      <g class="sparkle ghost"><rect x="24" y="52" width="6" height="6" /><rect x="172" y="116" width="6" height="6" /><rect x="18" y="126" width="5" height="5" /><rect x="170" y="42" width="5" height="5" /></g>
+      <text class="note-fx ghost" x="12" y="72">♪</text><text class="note-fx ghost" x="172" y="56">♫</text>
+      <rect class="drop drop-l ghost" x="24" y="64" width="6" height="9" /><rect class="drop drop-l ghost" x="32" y="46" width="5" height="8" />
+      <rect class="drop drop-r ghost" x="170" y="64" width="6" height="9" /><rect class="drop drop-r ghost" x="163" y="46" width="5" height="8" />
 
       <rect class="mouth ghost" x="93" y="104" width="14" height="13" />
       <rect class="dust dust-l ghost" x="38" y="154" width="10" height="8" /><rect class="dust dust-r ghost" x="152" y="154" width="10" height="8" />
@@ -293,6 +577,11 @@
       <g class="season-item pumpkin ghost">
         <rect x="2" y="140" width="32" height="22" fill="#e8822a" /><rect x="6" y="136" width="24" height="4" fill="#e8822a" /><rect x="15" y="130" width="6" height="6" fill="#3f9a4a" />
         <rect x="8" y="146" width="6" height="5" fill="#3a1d08" /><rect x="22" y="146" width="6" height="5" fill="#3a1d08" /><rect x="10" y="154" width="16" height="3" fill="#3a1d08" />
+      </g>
+      <!-- its birthday: a party hat and a balloon -->
+      <g class="season-item bday ghost">
+        <rect x="80" y="46" width="40" height="14" fill="#e86a9a" /><rect x="86" y="32" width="28" height="14" fill="#4aa3df" /><rect x="92" y="18" width="16" height="14" fill="#e86a9a" /><rect x="95" y="8" width="10" height="10" fill="#ffd84a" />
+        <rect x="187" y="64" width="2" height="62" fill="#f4f1ea" /><rect x="176" y="30" width="24" height="34" fill="#e0483c" /><rect x="180" y="34" width="6" height="8" fill="#ff8a7a" />
       </g>
       <g class="season-item santa ghost">
         <rect x="56" y="50" width="88" height="10" fill="#f4f1ea" /><rect x="66" y="36" width="68" height="14" fill="#d9423a" /><rect x="84" y="24" width="44" height="12" fill="#d9423a" />
@@ -348,6 +637,63 @@
       </g>
       <g class="prop prop-globe ghost">
         <rect x="162" y="62" width="28" height="28" fill="#4aa3df" /><rect x="166" y="66" width="10" height="8" fill="#58c064" /><rect x="178" y="74" width="8" height="10" fill="#58c064" /><rect x="168" y="80" width="6" height="6" fill="#58c064" />
+      </g>
+
+      <!-- knitting through a long command -->
+      <g class="wait wait-knit ghost">
+        <rect x="84" y="112" width="32" height="12" fill="#e86a9a" /><rect x="84" y="116" width="32" height="3" fill="#f4a6c2" /><rect x="150" y="126" width="16" height="16" fill="#e86a9a" /><rect x="154" y="130" width="8" height="3" fill="#f4a6c2" />
+        <g class="needles"><rect x="77" y="108" width="46" height="3" fill="#cfd3da" transform="rotate(18 100 110)" /><rect x="77" y="108" width="46" height="3" fill="#cfd3da" transform="rotate(-18 100 110)" /></g>
+      </g>
+
+      <!-- plan mode -->
+      <g class="plan-item blueprint ghost">
+        <rect x="62" y="102" width="76" height="26" fill="#2f6fd0" /><rect x="68" y="108" width="28" height="2" fill="#cfe2ff" /><rect x="68" y="114" width="40" height="2" fill="#cfe2ff" /><rect x="68" y="120" width="20" height="2" fill="#cfe2ff" />
+        <rect x="113" y="107" width="18" height="12" fill="none" stroke="#cfe2ff" stroke-width="2" />
+      </g>
+      <g class="plan-item pencil ghost" transform="rotate(-25 150 60)">
+        <rect x="147" y="44" width="6" height="22" fill="#f2c230" /><rect x="147" y="40" width="6" height="4" fill="#e0a070" /><rect x="149" y="37" width="2" height="3" fill="#1f1410" /><rect x="147" y="66" width="6" height="4" fill="#e86a9a" />
+      </g>
+
+      <!-- held up for a moment: a flag for a commit, a paper plane for a push, a popper for a PR, tea, water -->
+      <g class="moment mo-flag ghost"><rect x="186" y="92" width="4" height="70" fill="#8a5a2b" /><rect x="190" y="92" width="22" height="14" fill="#58c064" /><rect x="195" y="96" width="6" height="6" fill="#fff" /></g>
+      <g class="moment mo-plane ghost"><rect x="0" y="6" width="24" height="4" fill="#fff" /><rect x="8" y="2" width="12" height="4" fill="#fff" /><rect x="10" y="10" width="6" height="5" fill="#cfd3da" /></g>
+      <g class="moment mo-popper ghost"><rect x="14" y="74" width="16" height="16" fill="#f2c230" /><rect x="14" y="80" width="16" height="4" fill="#e0483c" /><rect x="18" y="68" width="8" height="6" fill="#e0483c" /></g>
+      <g class="moment mo-tea ghost">
+        <rect x="166" y="86" width="26" height="18" fill="#f4f1ea" /><rect x="169" y="88" width="20" height="4" fill="#b5651d" /><rect x="192" y="90" width="6" height="10" fill="#f4f1ea" />
+        <rect class="steam" x="172" y="74" width="4" height="8" /><rect class="steam" x="182" y="70" width="4" height="8" />
+      </g>
+      <g class="moment mo-gift ghost">
+        <rect x="164" y="84" width="28" height="24" fill="#e0483c" /><rect x="175" y="84" width="6" height="24" fill="#ffd84a" /><rect x="164" y="93" width="28" height="5" fill="#ffd84a" />
+        <rect x="169" y="77" width="7" height="7" fill="#ffd84a" /><rect x="180" y="77" width="7" height="7" fill="#ffd84a" />
+      </g>
+      <g class="moment mo-water ghost"><rect x="168" y="82" width="18" height="24" fill="#dff3ff" /><rect x="170" y="92" width="14" height="12" fill="#6cc8ff" /></g>
+
+      <!-- hobbies -->
+      <g class="hobby h-juggle ghost"><rect class="jug" width="12" height="12" fill="#e0483c" /><rect class="jug" width="12" height="12" fill="#4aa3df" /><rect class="jug" width="12" height="12" fill="#f2c230" /></g>
+      <g class="hobby h-stars ghost"><rect x="24" y="14" width="6" height="6" /><rect x="88" y="-6" width="5" height="5" /><rect x="158" y="8" width="6" height="6" /><rect x="126" y="-16" width="5" height="5" /><rect x="54" y="-12" width="5" height="5" /><rect x="184" y="-10" width="4" height="4" /></g>
+      <g class="hobby h-plant ghost">
+        <rect x="2" y="146" width="24" height="16" fill="#c8693f" /><rect x="0" y="142" width="28" height="5" fill="#a9532e" />
+        <rect x="12" y="132" width="4" height="10" fill="#3f9a4a" /><rect x="16" y="128" width="8" height="5" fill="#58c064" />
+        <g class="p1"><rect x="12" y="116" width="4" height="16" fill="#3f9a4a" /><rect x="4" y="120" width="8" height="5" fill="#58c064" /></g>
+        <g class="p2"><rect x="12" y="100" width="4" height="16" fill="#3f9a4a" /><rect x="16" y="106" width="8" height="5" fill="#58c064" /></g>
+        <g class="p3"><rect x="6" y="86" width="16" height="14" fill="#ff8ac0" /><rect x="11" y="90" width="6" height="6" fill="#ffd84a" /></g>
+      </g>
+      <g class="hobby h-water ghost">
+        <rect x="22" y="76" width="22" height="16" fill="#7d8594" /><rect x="6" y="80" width="16" height="5" fill="#7d8594" /><rect x="44" y="78" width="5" height="10" fill="#5d6470" />
+        <rect class="wdrop" x="6" y="88" width="4" height="6" fill="#6cc8ff" /><rect class="wdrop" x="11" y="96" width="4" height="6" fill="#6cc8ff" />
+      </g>
+
+      <!-- what it dreams about: whatever happened today -->
+      <g class="dream ghost">
+        <rect x="136" y="2" width="62" height="38" fill="#fff" /><rect x="132" y="8" width="70" height="26" fill="#fff" /><rect x="146" y="44" width="9" height="9" fill="#fff" /><rect x="156" y="56" width="5" height="5" fill="#fff" />
+        <g class="dream-i d-test" fill="#3fae5a"><rect x="152" y="20" width="6" height="6" /><rect x="158" y="26" width="6" height="6" /><rect x="164" y="20" width="6" height="6" /><rect x="170" y="14" width="6" height="6" /><rect x="176" y="8" width="6" height="6" /></g>
+        <g class="dream-i d-bug"><rect x="158" y="12" width="18" height="18" fill="#d9423a" /><rect x="154" y="14" width="4" height="3" /><rect x="154" y="23" width="4" height="3" /><rect x="176" y="14" width="4" height="3" /><rect x="176" y="23" width="4" height="3" /><rect x="161" y="15" width="4" height="4" fill="#fff" /><rect x="169" y="15" width="4" height="4" fill="#fff" /></g>
+        <g class="dream-i d-file"><rect x="158" y="8" width="18" height="26" fill="#dfe6f0" /><rect x="161" y="13" width="12" height="2" fill="#8a8f99" /><rect x="161" y="18" width="12" height="2" fill="#8a8f99" /><rect x="161" y="23" width="8" height="2" fill="#8a8f99" /></g>
+        <g class="dream-i d-commit"><rect x="146" y="19" width="42" height="4" fill="#8a8f99" /><rect x="159" y="13" width="16" height="16" fill="#f2c230" /><rect x="163" y="17" width="8" height="8" fill="#fff" /></g>
+        <g class="dream-i d-snack"><rect x="157" y="10" width="20" height="20" fill="#c98a4a" /><rect x="161" y="14" width="4" height="4" fill="#5a3414" /><rect x="170" y="18" width="4" height="4" fill="#5a3414" /><rect x="163" y="23" width="4" height="4" fill="#5a3414" /></g>
+        <g class="dream-i d-ball"><rect x="157" y="10" width="20" height="20" fill="#e0483c" /><rect x="157" y="18" width="20" height="4" fill="#fff" /></g>
+        <g class="dream-i d-globe"><rect x="157" y="10" width="20" height="20" fill="#4aa3df" /><rect x="160" y="13" width="8" height="6" fill="#58c064" /><rect x="168" y="20" width="7" height="7" fill="#58c064" /></g>
+        <g class="dream-i d-heart" fill="#ff5a7a"><rect x="158" y="10" width="7" height="5" /><rect x="169" y="10" width="7" height="5" /><rect x="155" y="15" width="24" height="8" /><rect x="158" y="23" width="18" height="4" /><rect x="162" y="27" width="10" height="4" /><rect x="165" y="31" width="4" height="3" /></g>
       </g>
 
       <g id="sweat" class="ghost"><rect x="170" y="50" width="10" height="10" /><rect x="170" y="60" width="10" height="10" /></g>

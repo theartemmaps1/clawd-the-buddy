@@ -1,5 +1,5 @@
-// The bed is its own little window; the main process moves it. This only reports when it is
-// grabbed and let go.
+// The room (the bed and whatever it has earned) is its own window; the main process moves it.
+// This reports when it is grabbed and let go, and shows what the buddy says is in it.
 const el = document.getElementById('bed');
 let held = false;
 
@@ -18,3 +18,11 @@ function release() {
 el.addEventListener('pointerup', release);
 el.addEventListener('pointercancel', release);
 window.addEventListener('blur', release);
+
+// which earned things are out, how tall the plant has grown, and whether the lamp is lit
+window.bed.onState((s) => {
+  const on = Array.isArray(s && s.on) ? s.on : [];
+  for (const item of document.querySelectorAll('.item')) item.classList.toggle('on', on.includes(item.dataset.id));
+  document.body.dataset.plant = Number(s && s.plant) || 0;
+  document.body.classList.toggle('night', !!(s && s.night));
+});

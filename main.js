@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, powerMonitor, screen } = require('electron');
 const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const http = require('http');
@@ -35,8 +35,12 @@ let fall = null; // { x, y, vx, vy, peak, bounces, ground } while it is in the a
 
 // other apps' windows, top-most first, so it can land on and ride their top edges
 let watcher = null;
-let platforms = []; // { h, l, t, r, b, zoomed } in screen DIPs
+let windows = []; // { h, l, t, r, b, zoomed } in screen DIPs: every window the helper reports
+let platforms = []; // the same list while "Sit on windows" is on, otherwise empty
 let perch = null; // { h, l, t } of the window it is standing on
+let presence = { full: false, mic: false, app: '', seq: 0 }; // what else the helper notices
+let lastApp = '';
+let hiding = null; // hide and seek: { perch } to go back to
 
 // the toy ball: its own little window with the same physics
 let ballWin = null;
@@ -47,19 +51,42 @@ let chase = false;
 let lastBat = 0;
 let ticks = 0;
 
-const settings = { wander: true, gravity: true, sound: true, perch: true, bed: false, bedX: 0, bedY: 0, personality: 'cheerful' };
+const settings = {
+  wander: true, gravity: true, sound: true, perch: true, bed: false, bedX: 0, bedY: 0, personality: 'cheerful',
+  typing: true, reminders: true, notice: true, autoQuiet: true, quiet: false,
+};
 const PERSONALITIES = ['cheerful', 'sarcastic', 'shy', 'dramatic'];
 const settingsFile = path.join(app.getPath('userData'), 'buddy-settings.json');
 let config = {}; // config.json: timings, thresholds and phrases the user can retune
 // what the renderer says is unlocked and worn, for the Wardrobe menu
 let wardrobe = { tasks: 0, hat: '', color: 'classic', hats: [], colors: [] };
 let badges = []; // { label, earned }, also from the renderer
+let roomItems = []; // { id, label, need, unlocked, on }
+let tricks = []; // { id, label, known }
+let who = { name: '', code: '', friends: [], words: 0 }; // its name, its code to share, who it knows
+let roomState = { on: [], plant: 0, night: false }; // what is standing in its room right now
+let albumWin = null;
 let pomodoro = false;
 let quitting = false;
+// Local dev tools, if there are any: a dev/ folder next to the app that is not part of the
+// repo (see loadDev). Without it none of this does anything.
+let dev = null;
+let savesHeld = false; // dev sandbox: nothing it remembers is written to disk
 
-// its bed: a little window of its own that it walks back to when it is sleepy
-const BED_W = 170;
-const BED_H = 70;
+// its room: a window of its own with the bed in it, which it walks back to when it is sleepy
+const BED_W = 300;
+const BED_H = 160;
+const ROOM_SCALE = 5; // room.html is drawn on a 60x32 grid
+// where each thing stands on that grid, so the window can be cut to their outlines
+const ROOM_BOXES = {
+  bed: [13, 18, 34, 14],
+  rug: [6, 30, 48, 2],
+  plant: [1, 12, 12, 20],
+  lamp: [48, 10, 12, 22],
+  poster: [20, 2, 11, 12],
+  shelf: [33, 2, 14, 8],
+  lights: [3, 0, 54, 4],
+};
 let bedWin = null;
 let bedDrag = null;
 
@@ -101,6 +128,7 @@ function loadMemory() {
 function flushMemory() {
   clearTimeout(memoryTimer);
   memoryTimer = null;
+  if (savesHeld) return;
   try {
     const tmp = memoryFile + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(memory));
@@ -188,20 +216,27 @@ function createWindow() {
   win.on('closed', () => {
     if (ballWin && !ballWin.isDestroyed()) ballWin.close();
     if (bedWin && !bedWin.isDestroyed()) bedWin.close();
+    if (albumWin && !albumWin.isDestroyed()) albumWin.close();
   });
   win.loadFile('index.html');
 }
 
 // ---- other windows as platforms ----
 
-// A tiny always-running helper that prints the visible top-level windows (top-most first)
-// whenever they change. Sent to PowerShell on stdin as one line, so the C# must not contain
-// single quotes or line comments.
+// A tiny always-running helper. It prints the visible top-level windows (top-most first)
+// whenever they change, a line whenever a key goes down, and a line about the window in front:
+// whether it fills the screen, whether a microphone is in use, and which program it belongs to.
+// It never looks at which key, at window titles, or at anything typed.
+// Sent to PowerShell on stdin as one line, so the C# must not contain single quotes or line
+// comments.
 const WATCH_CS = [
-  'using System; using System.Text; using System.Threading; using System.Runtime.InteropServices;',
+  'using System; using System.Text; using System.Threading; using System.Runtime.InteropServices; using Microsoft.Win32;',
   'namespace Buddy { public static class Watch {',
   'delegate bool EnumProc(IntPtr h, IntPtr l);',
   '[StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }',
+  '[StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }',
+  '[StructLayout(LayoutKind.Sequential)] public struct LASTINPUT { public uint cbSize; public uint dwTime; }',
+  '[StructLayout(LayoutKind.Sequential)] public struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }',
   '[DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);',
   '[DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);',
   '[DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);',
@@ -210,10 +245,41 @@ const WATCH_CS = [
   '[DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);',
   '[DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr h);',
   '[DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);',
+  '[DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUT i);',
+  '[DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);',
+  '[DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();',
+  '[DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, uint f);',
+  '[DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr m, ref MONITORINFO i);',
+  '[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);',
   '[DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out int v, int s);',
   '[DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out RECT v, int s);',
+  'static readonly object Gate = new object();',
+  'static void Say(string s) { lock (Gate) { Console.Out.WriteLine(s); Console.Out.Flush(); } }',
+  // Input arrived and the pointer did not move: a key (or a click or the wheel). Only the
+  // moment is known, which is all the buddy needs to bob along.
+  'static void Keys() {',
+  '  LASTINPUT li = new LASTINPUT(); li.cbSize = 8; uint last = 0; POINT was = new POINT();',
+  '  while (true) {',
+  '    POINT p; GetCursorPos(out p);',
+  '    if (GetLastInputInfo(ref li) && li.dwTime != last) { bool first = last == 0; last = li.dwTime; if (!first && p.X == was.X && p.Y == was.Y) Say("K"); }',
+  '    was = p; Thread.Sleep(45);',
+  '  }',
+  '}',
+  // Windows keeps a "last used" time per app for the microphone; zero means it is in use now.
+  'static bool Used(RegistryKey k) {',
+  '  foreach (string n in k.GetSubKeyNames()) { using (RegistryKey s = k.OpenSubKey(n)) { if (s == null) continue; object v = s.GetValue("LastUsedTimeStop"); if (v is long && (long)v == 0) return true; } }',
+  '  return false;',
+  '}',
+  'static bool Mic() {',
+  '  try { using (RegistryKey k = Registry.CurrentUser.OpenSubKey("Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\CapabilityAccessManager\\\\ConsentStore\\\\microphone")) {',
+  '    if (k == null) return false; if (Used(k)) return true;',
+  '    using (RegistryKey np = k.OpenSubKey("NonPackaged")) { if (np != null && Used(np)) return true; }',
+  '  } } catch { }',
+  '  return false;',
+  '}',
   'public static void Run(int owner, int ms) {',
-  '  string last = null; int n = 0;',
+  '  Thread t = new Thread(new ThreadStart(Keys)); t.IsBackground = true; t.Start();',
+  '  string last = null; string lastFront = null; int n = 0; int full = 0; int mic = 0; uint frontPid = 0; string front = "";',
   '  while (true) {',
   '    if (n++ % 8 == 0) { try { System.Diagnostics.Process.GetProcessById(owner); } catch { return; } }',
   '    StringBuilder sb = new StringBuilder();',
@@ -229,13 +295,55 @@ const WATCH_CS = [
   '      return true;',
   '    }, IntPtr.Zero);',
   '    string s = sb.ToString();',
-  '    if (s != last) { last = s; Console.Out.WriteLine("W " + s); Console.Out.Flush(); }',
+  '    if (s != last) { last = s; Say("W " + s); }',
+  '    IntPtr fg = GetForegroundWindow(); uint fp = 0;',
+  '    if (fg != IntPtr.Zero) GetWindowThreadProcessId(fg, out fp);',
+  '    if (fp != 0 && fp != (uint)owner) {',
+  '      StringBuilder cn = new StringBuilder(64); GetClassName(fg, cn, 64); string c = cn.ToString();',
+  '      RECT fr; MONITORINFO mi = new MONITORINFO(); mi.cbSize = 40; full = 0;',
+  '      if (c != "Progman" && c != "WorkerW" && c != "Shell_TrayWnd" && !IsZoomed(fg) && GetWindowRect(fg, out fr) && GetMonitorInfo(MonitorFromWindow(fg, 2), ref mi)) {',
+  '        if (fr.L <= mi.rcMonitor.L && fr.T <= mi.rcMonitor.T && fr.R >= mi.rcMonitor.R && fr.B >= mi.rcMonitor.B) full = 1;',
+  '      }',
+  '      if (fp != frontPid) { frontPid = fp; try { front = System.Diagnostics.Process.GetProcessById((int)fp).ProcessName; } catch { front = ""; } }',
+  '    }',
+  '    if (n % 20 == 1) mic = Mic() ? 1 : 0;',
+  '    string f = full + " " + mic + " " + front;',
+  '    if (f != lastFront) { lastFront = f; Say("F " + f); }',
   '    Thread.Sleep(ms);',
   '  }',
   '} } }',
 ].join(' ');
 
+// The program in front, boiled down to a kind of activity. Only the kind reaches the buddy.
+const APP_KINDS = [
+  ['claude', /^claude$/i],
+  ['editor', /^(code|code - insiders|cursor|windsurf|zed|devenv|idea64|pycharm64|webstorm64|rider64|clion64|goland64|sublime_text|notepad\+\+|notepad|gvim|nvim-qt|neovide)$/i],
+  ['terminal', /^(windowsterminal|cmd|powershell|pwsh|wezterm-gui|alacritty|conhost|mintty|warp|tabby)$/i],
+  ['browser', /^(chrome|msedge|firefox|brave|opera|vivaldi|arc|zen)$/i],
+  ['chat', /^(discord|slack|telegram|ms-teams|teams|whatsapp|signal|zoom|element)$/i],
+  ['music', /^(spotify|applemusic|foobar2000|musicbee|vlc|mpv|mpc-hc64|wmplayer|tidal)$/i],
+  ['art', /^(blender|photoshop|illustrator|figma|krita|gimp.*|aseprite|inkscape|afterfx|resolve|paintdotnet)$/i],
+  ['taking', /^(ida64|ida|idaq64|ghidra.*|x64dbg|x32dbg|cheatengine.*|dnspy|ilspy)$/i],
+  ['files', /^explorer$/i],
+  ['game', /^(steam|steamwebhelper|epicgameslauncher|galaxyclient|playnite.*)$/i],
+];
+
+function onFront(line) {
+  const m = /^(\d) (\d) (.*)$/.exec(line);
+  if (!m) return;
+  const name = m[3].trim().slice(0, 60);
+  const full = m[1] === '1';
+  const hit = APP_KINDS.find(([, re]) => re.test(name));
+  // something unknown filling the whole screen is most likely a game or a film
+  const app = hit ? hit[0] : full && name ? 'game' : '';
+  presence = { full, mic: m[2] === '1', app: settings.notice ? app : '', seq: presence.seq + (name !== lastApp ? 1 : 0) };
+  lastApp = name;
+  send('buddy-presence', presence);
+}
+
 function onWindows(line) {
+  if (line === 'K') { if (settings.typing) send('buddy-key'); return; }
+  if (line.startsWith('F ')) return onFront(line.slice(2));
   if (!line.startsWith('W ')) return;
   const list = [];
   for (const part of line.slice(2).split(';')) {
@@ -244,12 +352,13 @@ function onWindows(line) {
     const r = screen.screenToDipRect(null, { x: n[1], y: n[2], width: n[3] - n[1], height: n[4] - n[2] });
     list.push({ h: n[0], l: r.x, t: r.y, r: r.x + r.width, b: r.y + r.height, zoomed: n[5] === 1 });
   }
-  platforms = list;
+  windows = list;
+  platforms = settings.perch && settings.gravity ? list : [];
   followPerch();
 }
 
 function startWatcher() {
-  if (watcher || process.platform !== 'win32' || !settings.perch || !settings.gravity) return;
+  if (watcher || process.platform !== 'win32') return;
   try {
     watcher = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '-'], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
   } catch {
@@ -270,20 +379,18 @@ function startWatcher() {
   child.on('error', () => {});
   child.on('exit', () => {
     if (watcher === child) watcher = null;
+    windows = [];
     platforms = [];
   });
   child.stdin.on('error', () => {});
   child.stdin.write(`Add-Type -TypeDefinition '${WATCH_CS}'; [Buddy.Watch]::Run(${process.pid}, 120)\n`);
 }
 
-function stopWatcher() {
-  if (watcher) {
-    const child = watcher;
-    watcher = null;
-    child.kill();
-  }
-  platforms = [];
-  if (perch) dropFromPerch();
+// "Sit on windows" (or gravity) was switched: the helper keeps running for everything else it
+// reports, but the windows only count as places to stand while both are on.
+function refreshPlatforms() {
+  platforms = settings.perch && settings.gravity ? windows : [];
+  if (!platforms.length && perch) dropFromPerch();
 }
 
 // is this point hidden behind a window that is above platform number `index`?
@@ -362,7 +469,9 @@ function stepWalk() {
   setPos(walk.x, walk.y);
   if (done) {
     if (walk.setHome) home = { x: Math.round(walk.tx), y: Math.round(walk.ty) };
+    const back = walk.perch;
     walk = null;
+    if (back) { perch = back; followPerch(); } // home was on top of a window
     send('buddy-walk-done');
   }
   checkPerchEdge();
@@ -547,6 +656,7 @@ ipcMain.on('buddy-drag', (_e, on) => {
   walk = null;
   fall = null;
   perch = null;
+  hiding = null;
   dragTrail = [];
   const c = screen.getCursorScreenPoint();
   const b = win.getBounds();
@@ -667,9 +777,33 @@ function createBed() {
     bedWin = null;
     bedDrag = null;
   });
+  bedWin.webContents.on('did-finish-load', sendRoom);
   bedWin.loadFile('bed.html');
   bedWin.once('ready-to-show', () => { if (win && !win.isDestroyed()) win.moveTop(); });
 }
+
+// Tell the room what is standing in it, and cut the window down to those things so the empty
+// wall around them doesn't swallow clicks.
+function sendRoom() {
+  if (!bedWin || bedWin.isDestroyed()) return;
+  bedWin.webContents.send('room-state', roomState);
+  try {
+    bedWin.setShape(['bed', ...roomState.on].filter((id) => ROOM_BOXES[id]).map((id) => {
+      const [x, y, w, h] = ROOM_BOXES[id];
+      return { x: x * ROOM_SCALE, y: y * ROOM_SCALE, width: w * ROOM_SCALE, height: h * ROOM_SCALE };
+    }));
+  } catch {}
+}
+
+ipcMain.on('buddy-room', (_e, r) => {
+  if (!r || typeof r !== 'object') return;
+  roomState = {
+    on: Array.isArray(r.on) ? r.on.filter((id) => typeof id === 'string' && ROOM_BOXES[id]).slice(0, 10) : [],
+    plant: Math.max(0, Math.min(3, Number(r.plant) || 0)),
+    night: !!r.night,
+  };
+  sendRoom();
+});
 
 ipcMain.on('bed-drag', (e, on) => {
   if (!bedWin || e.sender !== bedWin.webContents) return;
@@ -707,16 +841,77 @@ ipcMain.on('buddy-go-bed', () => {
   win.moveTop();
 });
 
+// ---- hide and seek ----
+
+// It hides mostly off an outer edge of the screen: peeking over the bottom, or round a side.
+function startHide() {
+  if (!win || win.isDestroyed() || dragOffset || fall) return send('buddy-hidden', false);
+  const b = win.getBounds();
+  const d = screen.getDisplayNearestPoint({ x: Math.round(b.x + WIN_W / 2), y: Math.round(b.y + WIN_H / 2) }).bounds;
+  // an edge only hides it if there isn't another screen on the far side
+  const open = (x, y) => !screen.getAllDisplays().some((o) => x >= o.bounds.x && x < o.bounds.x + o.bounds.width && y >= o.bounds.y && y < o.bounds.y + o.bounds.height);
+  const sides = [];
+  if (open(d.x + d.width / 2, d.y + d.height + 40)) sides.push('bottom', 'bottom');
+  if (open(d.x - 40, d.y + d.height / 2)) sides.push('left');
+  if (open(d.x + d.width + 40, d.y + d.height / 2)) sides.push('right');
+  const side = sides.length ? sides[Math.floor(Math.random() * sides.length)] : 'bottom';
+  const y = d.y + Math.random() * Math.max(1, d.height - WIN_H);
+  const spot = side === 'left' ? { x: d.x - 128, y }
+    : side === 'right' ? { x: d.x + d.width - 112, y }
+    : { x: d.x - 45 + Math.random() * (d.width - 150), y: d.y + d.height - 208 };
+  hiding = { perch };
+  walk = null;
+  chase = false;
+  perch = null;
+  setPos(spot.x, spot.y);
+  win.moveTop();
+  send('buddy-hidden', true);
+}
+
+ipcMain.on('buddy-hide', (_e, on) => {
+  if (on) return startHide();
+  if (!win || win.isDestroyed() || dragOffset || fall) return send('buddy-walk-done');
+  const b = win.getBounds();
+  walk = { x: b.x, y: b.y, tx: home.x, ty: home.y, perch: hiding ? hiding.perch : null };
+  hiding = null;
+});
+
+// ---- photo album ----
+
+function openAlbum() {
+  if (albumWin && !albumWin.isDestroyed()) return albumWin.focus();
+  albumWin = new BrowserWindow({
+    width: 420,
+    height: 560,
+    title: 'Buddy\'s photo album',
+    autoHideMenuBar: true,
+    backgroundColor: '#f6efe6',
+    webPreferences: { preload: path.join(__dirname, 'album-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  albumWin.setMenu(null);
+  albumWin.webContents.on('will-navigate', (e) => e.preventDefault());
+  albumWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  albumWin.on('closed', () => { albumWin = null; });
+  albumWin.loadFile('album.html');
+}
+
+ipcMain.on('album-load', (e) => {
+  const life = memory['buddy-life'];
+  e.returnValue = life && Array.isArray(life.album) ? life.album.slice(-150) : [];
+});
+
 // ---- focus timer, notes, goodbye ----
 
 ipcMain.on('buddy-pomodoro-ended', () => { pomodoro = false; });
 
-function editNote() {
+// Opens the little text box over the buddy: for its note, its name, a phrase to teach it, or a
+// friend's code.
+function edit(kind) {
   if (!win || win.isDestroyed()) return;
   win.show();
   win.setIgnoreMouseEvents(false);
   win.focus();
-  send('buddy-note-edit');
+  send('buddy-edit', kind);
 }
 
 // Quit from the menu: give it a few seconds to say goodbye first.
@@ -828,10 +1023,8 @@ function setSetting(key, value) {
     fall = { x: b.x, y: b.y, vx: 0, vy: 0, peak: 0, bounces: 0, ground: null };
     send('buddy-fly', { speed: 0 });
   }
-  if (key === 'gravity' || key === 'perch') {
-    if (settings.gravity && settings.perch) startWatcher();
-    else stopWatcher();
-  }
+  if (key === 'gravity' || key === 'perch') refreshPlatforms();
+  if (key === 'gravity') hiding = null;
 }
 
 ipcMain.on('buddy-wardrobe', (_e, w) => {
@@ -844,6 +1037,21 @@ ipcMain.on('buddy-wardrobe', (_e, w) => {
   })) : []);
   wardrobe = { tasks: Number(w.tasks) || 0, hat: String(w.hat || ''), color: String(w.color || 'classic'), hats: items(w.hats), colors: items(w.colors) };
   badges = Array.isArray(w.badges) ? w.badges.slice(0, 60).map((b) => ({ label: String(b.label).slice(0, 70), earned: !!b.earned })) : [];
+  roomItems = Array.isArray(w.room) ? w.room.slice(0, 20).map((r) => ({
+    id: String(r.id).slice(0, 20),
+    label: String(r.label).slice(0, 30),
+    need: Number(r.need) || 0,
+    unlocked: !!r.unlocked,
+    on: !!r.on,
+  })) : [];
+  who = {
+    name: String(w.name || '').slice(0, 16),
+    code: /^BUD-\d{4}-.{1,16}$/.test(String(w.code)) ? String(w.code) : '',
+    friends: Array.isArray(w.friends) ? w.friends.slice(0, 8).map((n) => String(n).slice(0, 16)) : [],
+    words: Number(w.words) || 0,
+  };
+  if (tray) tray.setToolTip(who.name ? `${who.name} (Claude Buddy)` : 'Claude Buddy');
+  tricks = Array.isArray(w.tricks) ? w.tricks.slice(0, 20).map((t) => ({ id: String(t.id).slice(0, 20), label: String(t.label).slice(0, 90), known: !!t.known })) : [];
 });
 
 function wardrobeMenu() {
@@ -871,10 +1079,55 @@ function buildMenu() {
     { label: 'Go to Claude', click: () => focusSession(lastSession) },
     { label: 'How are you feeling?', click: () => send('buddy-ask-mood') },
     { label: 'How was today?', click: () => send('buddy-ask-day') },
-    { label: ball ? 'Put the ball away' : 'Throw a ball', click: toggleBall },
+    { label: 'How was this week?', click: () => send('buddy-ask-week') },
+    {
+      label: 'Play',
+      submenu: [
+        { label: ball ? 'Put the ball away' : 'Throw a ball', click: toggleBall },
+        { label: 'Rock, paper, scissors', click: () => send('buddy-play', 'rps') },
+        { label: 'Hide and seek', click: () => send('buddy-play', 'hide') },
+      ],
+    },
+    {
+      label: `Tricks (${tricks.filter((t) => t.known).length}/${tricks.length})`,
+      submenu: tricks.length ? tricks.map((t) => ({ label: t.label, enabled: t.known, click: () => send('buddy-trick', t.id) })) : [{ label: 'None yet', enabled: false }],
+    },
     { label: pomodoro ? 'Stop focus timer' : 'Start focus timer', click: () => { pomodoro = !pomodoro; send('buddy-pomodoro', pomodoro); } },
-    { label: 'Leave a note…', click: editNote },
+    { label: 'Leave a note…', click: () => edit('note') },
+    { label: who.name ? `Rename ${who.name}…` : 'Give it a name…', click: () => edit('name') },
+    {
+      label: 'Teach it',
+      submenu: [
+        { label: 'A new phrase…', click: () => edit('teach') },
+        { label: `Forget what I taught it (${who.words})`, enabled: who.words > 0, click: () => send('buddy-do', { what: 'forget-words' }) },
+      ],
+    },
+    {
+      label: 'Friends',
+      submenu: [
+        { label: `Copy my code (${who.code})`, enabled: !!who.code, click: () => { clipboard.writeText(who.code); send('buddy-do', { what: 'copied' }); } },
+        { label: 'Add a friend\'s code…', click: () => edit('invite') },
+        ...(who.friends.length ? [{ type: 'separator' }] : []),
+        ...who.friends.map((name) => ({ label: `Invite ${name} over`, click: () => send('buddy-do', { what: 'visit', arg: name }) })),
+        ...(who.friends.length ? [{ type: 'separator' }, { label: 'Forget all friends', click: () => send('buddy-do', { what: 'forget-friends' }) }] : []),
+      ],
+    },
     { label: 'Wardrobe', submenu: wardrobeMenu() },
+    {
+      label: 'Room',
+      submenu: [
+        toggle('Bed', 'bed'),
+        { type: 'separator' },
+        ...roomItems.map((r) => ({
+          label: r.unlocked ? r.label : `${r.label} (at ${r.need} achievements)`,
+          type: 'checkbox',
+          enabled: r.unlocked && settings.bed,
+          checked: r.unlocked && r.on,
+          click: () => send('buddy-room-toggle', r.id),
+        })),
+      ],
+    },
+    { label: 'Photo album', click: openAlbum },
     {
       label: `Achievements (${badges.filter((b) => b.earned).length}/${badges.length})`,
       submenu: badges.length ? badges.map((b) => ({ label: (b.earned ? '★ ' : '☆ ') + b.label, enabled: b.earned })) : [{ label: 'None yet', enabled: false }],
@@ -890,10 +1143,14 @@ function buildMenu() {
     },
     { type: 'separator' },
     toggle('Sound', 'sound'),
+    toggle('Quiet mode', 'quiet'),
+    { ...toggle('Go quiet in fullscreen and on calls', 'autoQuiet'), enabled: process.platform === 'win32' },
+    toggle('Gentle reminders', 'reminders'),
+    { ...toggle('Bob along when I type', 'typing'), enabled: process.platform === 'win32' },
+    { ...toggle('Notice what I\'m doing', 'notice'), enabled: process.platform === 'win32' },
     toggle('Curious wandering', 'wander'),
     toggle('Gravity', 'gravity'),
     { ...toggle('Sit on windows', 'perch'), enabled: settings.gravity && process.platform === 'win32' },
-    toggle('Bed', 'bed'),
     {
       label: 'Start with Windows',
       type: 'checkbox',
@@ -903,6 +1160,7 @@ function buildMenu() {
     { label: visible ? 'Hide buddy' : 'Show buddy', click: () => (visible ? win.hide() : win.showInactive()) },
     { type: 'separator' },
     { label: 'Reload config.json', click: () => { send('buddy-config-loaded', loadConfig()); sendSettings(); } },
+    ...(dev && dev.menu ? [{ label: 'Dev', submenu: dev.menu() }] : []),
     { label: 'Quit Buddy', click: quitNicely },
   ]);
 }
@@ -938,6 +1196,28 @@ function createTray() {
   tray.on('right-click', open);
 }
 
+// ---- dev tools ----
+
+// dev/index.js, when it exists, gets a handle on the app and may add a "Dev" menu and listen
+// in on hook events. The folder is in .gitignore, so it only ever exists where someone made it.
+function loadDev() {
+  if (!fs.existsSync(path.join(__dirname, 'dev', 'index.js'))) return;
+  try {
+    dev = require('./dev')({
+      app,
+      getWin: () => win,
+      send,
+      getMemory: () => memory,
+      setMemory: (m) => { memory = m; },
+      holdSaves: (on) => { savesHeld = !!on; },
+      flushMemory,
+      settings,
+    });
+  } catch (e) {
+    console.error('dev tools:', e.message);
+  }
+}
+
 // ---- hook server ----
 
 // Only the fields the mascot needs are forwarded to the renderer.
@@ -951,6 +1231,8 @@ function slim(p) {
     notificationType: p.notification_type,
     message: p.message,
     agentType: p.agent_type,
+    mode: typeof p.permission_mode === 'string' ? p.permission_mode.slice(0, 30) : '',
+    source: typeof p.source === 'string' ? p.source.slice(0, 30) : '',
     cwd: p.cwd,
     session: typeof p.session_id === 'string' ? p.session_id.slice(0, 80) : '',
   };
@@ -989,6 +1271,7 @@ function startServer() {
         const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         const e = slim(payload);
         send('claude-event', e);
+        if (dev && dev.onHook) dev.onHook(e);
         const sid = e.session;
         if (sid) lastSession = sid;
         if (['PostToolUse', 'Stop', 'UserPromptSubmit'].includes(e.event)) checkContext(sid, payload.transcript_path);
@@ -1036,10 +1319,16 @@ if (!app.requestSingleInstanceLock()) {
     loadConfig();
     createWindow();
     createTray();
+    loadDev();
     if (settings.bed) createBed();
     trackCursor();
     startWatcher();
     startServer();
+    // a few things about the computer itself that it likes to remark on
+    powerMonitor.on('on-battery', () => send('buddy-world', 'battery'));
+    powerMonitor.on('on-ac', () => send('buddy-world', 'ac'));
+    screen.on('display-added', () => send('buddy-world', 'display-added'));
+    screen.on('display-removed', () => send('buddy-world', 'display-removed'));
   });
 
   app.on('before-quit', () => {
