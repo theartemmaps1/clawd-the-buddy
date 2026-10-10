@@ -38,9 +38,15 @@ let watcher = null;
 let windows = []; // { h, l, t, r, b, zoomed } in screen DIPs: every window the helper reports
 let platforms = []; // the same list while "Sit on windows" is on, otherwise empty
 let perch = null; // { h, l, t } of the window it is standing on
-let presence = { full: false, mic: false, app: '', seq: 0 }; // what else the helper notices
+let presence = { full: false, mic: false, app: '', game: '', seq: 0 }; // what else the helper notices
 let lastApp = '';
+let frontH = 0; // the window in front, as the helper numbers it
+const printWins = new Set(); // muddy footprints across the screen, for a few seconds
+let holding = null; // { until, timer } while he has the pointer and will not give it back
+let war = null; // { d0, until, timer } during a tug of war over it
+let awayFrom = null; // { perch } while he is sitting on what you are reading, or out roaming
 let hiding = null; // hide and seek: { perch } to go back to
+let cornerFrom = null; // where he lived before he took himself off to a corner, hurt
 
 // the toy ball: its own little window with the same physics
 let ballWin = null;
@@ -53,9 +59,9 @@ let ticks = 0;
 
 const settings = {
   wander: true, gravity: true, sound: true, perch: true, bed: false, bedX: 0, bedY: 0, personality: 'cheerful',
-  typing: true, reminders: true, notice: true, autoQuiet: true, quiet: false,
+  typing: true, reminders: true, notice: true, autoQuiet: true, quiet: false, music: false, pages: false, meddle: false, pet: false,
 };
-const PERSONALITIES = ['cheerful', 'sarcastic', 'shy', 'dramatic'];
+const PERSONALITIES = ['cheerful', 'sarcastic', 'shy', 'dramatic', 'wise', 'nerdy', 'sleepy', 'anxious'];
 const settingsFile = path.join(app.getPath('userData'), 'buddy-settings.json');
 let config = {}; // config.json: timings, thresholds and phrases the user can retune
 // what the renderer says is unlocked and worn, for the Wardrobe menu
@@ -226,11 +232,14 @@ function createWindow() {
 // A tiny always-running helper. It prints the visible top-level windows (top-most first)
 // whenever they change, a line whenever a key goes down, and a line about the window in front:
 // whether it fills the screen, whether a microphone is in use, and which program it belongs to.
-// It never looks at which key, at window titles, or at anything typed.
+// It never looks at which key or at anything typed. While "Notice which sites I'm on" is
+// switched on it also reads the address bar of the browser in front and prints the site's
+// host name, nothing after it. While "Let him mess with my desktop" is switched on it also
+// takes orders on stdin (see Hands): it is the one thing here that acts instead of looking.
 // Sent to PowerShell on stdin as one line, so the C# must not contain single quotes or line
-// comments.
+// comments. With "Listen to my music" on, MUSIC_PS runs beside it (see there).
 const WATCH_CS = [
-  'using System; using System.Text; using System.Threading; using System.Runtime.InteropServices; using Microsoft.Win32;',
+  'using System; using System.Text; using System.Threading; using System.Runtime.InteropServices; using Microsoft.Win32; using UIA = System.Windows.Automation;',
   'namespace Buddy { public static class Watch {',
   'delegate bool EnumProc(IntPtr h, IntPtr l);',
   '[StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }',
@@ -248,20 +257,28 @@ const WATCH_CS = [
   '[DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUT i);',
   '[DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);',
   '[DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();',
+  '[DllImport("user32.dll")] static extern uint GetClipboardSequenceNumber();',
   '[DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, uint f);',
   '[DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr m, ref MONITORINFO i);',
   '[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);',
+  '[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);',
+  '[DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);',
+  '[DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint f);',
+  '[DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);',
+  '[DllImport("user32.dll")] static extern short GetAsyncKeyState(int k);',
   '[DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out int v, int s);',
   '[DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out RECT v, int s);',
   'static readonly object Gate = new object();',
-  'static void Say(string s) { lock (Gate) { Console.Out.WriteLine(s); Console.Out.Flush(); } }',
+  'public static void Say(string s) { lock (Gate) { Console.Out.WriteLine(s); Console.Out.Flush(); } }',
   // Input arrived and the pointer did not move: a key (or a click or the wheel). Only the
-  // moment is known, which is all Clawd needs to bob along.
+  // moment is known, which is all Clawd needs to bob along. The same goes for the clipboard:
+  // Windows counts its changes, and a new count ("C") is all that is ever looked at.
   'static void Keys() {',
-  '  LASTINPUT li = new LASTINPUT(); li.cbSize = 8; uint last = 0; POINT was = new POINT();',
+  '  LASTINPUT li = new LASTINPUT(); li.cbSize = 8; uint last = 0; POINT was = new POINT(); uint copied = GetClipboardSequenceNumber();',
   '  while (true) {',
   '    POINT p; GetCursorPos(out p);',
   '    if (GetLastInputInfo(ref li) && li.dwTime != last) { bool first = last == 0; last = li.dwTime; if (!first && p.X == was.X && p.Y == was.Y) Say("K"); }',
+  '    uint cs = GetClipboardSequenceNumber(); if (cs != copied) { copied = cs; Say("C"); }',
   '    was = p; Thread.Sleep(45);',
   '  }',
   '}',
@@ -277,9 +294,103 @@ const WATCH_CS = [
   '  } } catch { }',
   '  return false;',
   '}',
-  'public static void Run(int owner, int ms) {',
+  // "Notice which sites I'm on": once a second, if the window in front is a browser (and not
+  // one marked private), find its address bar through UI Automation and print the host name.
+  // Anything that does not look like a host (a search being typed, an internal page) is "?".
+  // On a thread of its own so a slow browser cannot hold up the windows.
+  'static void Pages(int owner) {',
+  '  string last = null;',
+  '  UIA.Condition edit = new UIA.PropertyCondition(UIA.AutomationElement.ControlTypeProperty, UIA.ControlType.Edit);',
+  '  while (true) {',
+  '    Thread.Sleep(1000);',
+  '    try {',
+  '      IntPtr fg = GetForegroundWindow(); uint fp = 0; if (fg != IntPtr.Zero) GetWindowThreadProcessId(fg, out fp);',
+  '      if (fp == (uint)owner) continue;',
+  '      string pg = "";',
+  '      if (fp != 0 && "|chrome|msedge|firefox|brave|opera|vivaldi|arc|zen|".IndexOf("|" + System.Diagnostics.Process.GetProcessById((int)fp).ProcessName.ToLower() + "|") >= 0) {',
+  '        StringBuilder tb = new StringBuilder(300); GetWindowText(fg, tb, 300); string title = tb.ToString();',
+  '        if (title.IndexOf("InPrivate") < 0 && title.IndexOf("Private Browsing") < 0 && title.IndexOf("Incognito") < 0) {',
+  '          UIA.AutomationElement bar = UIA.AutomationElement.FromHandle(fg).FindFirst(UIA.TreeScope.Descendants, edit);',
+  '          if (bar != null) {',
+  '            string v = ((UIA.ValuePattern)bar.GetCurrentPattern(UIA.ValuePattern.Pattern)).Current.Value.Trim().ToLower();',
+  '            int i = v.IndexOf("://"); if (i >= 0) v = v.Substring(i + 3);',
+  '            i = v.IndexOfAny(new char[] { (char)47, (char)63, (char)35, (char)58, (char)32 }); if (i >= 0) v = v.Substring(0, i);',
+  '            pg = System.Text.RegularExpressions.Regex.IsMatch(v, "^[a-z0-9.-]{1,80}[.][a-z]{2,}$") ? v : "?";',
+  '          }',
+  '        }',
+  '      }',
+  '      if (pg != last) { last = pg; Say("P " + pg); }',
+  '    } catch { }',
+  '  }',
+  '}',
+  // "Let him mess with my desktop": a line from Clawd on stdin and a window gets a shake or a
+  // shove sideways, or the pointer a tug. Never a window that is maximised, fills the screen,
+  // belongs to the desktop or the taskbar, or while a mouse button is held (something is being
+  // dragged). Where each shoved window came from is kept, and "back" slides home every one
+  // that is still where he left it. Only ever moved: never resized, raised, focused or closed.
+  'static readonly System.Collections.Generic.Dictionary<long, int[]> Moved = new System.Collections.Generic.Dictionary<long, int[]>();',
+  'static bool Fair(IntPtr h, int owner) {',
+  '  if (h == IntPtr.Zero || !IsWindow(h) || !IsWindowVisible(h) || IsIconic(h) || IsZoomed(h)) return false;',
+  '  uint pid; GetWindowThreadProcessId(h, out pid); if (pid == (uint)owner) return false;',
+  '  StringBuilder cn = new StringBuilder(64); GetClassName(h, cn, 64); string c = cn.ToString();',
+  '  if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd") return false;',
+  '  RECT r; MONITORINFO mi = new MONITORINFO(); mi.cbSize = 40;',
+  '  if (!GetWindowRect(h, out r) || !GetMonitorInfo(MonitorFromWindow(h, 2), ref mi)) return false;',
+  '  return !(r.L <= mi.rcMonitor.L && r.T <= mi.rcMonitor.T && r.R >= mi.rcMonitor.R && r.B >= mi.rcMonitor.B);',
+  '}',
+  'static void Slide(IntPtr h, int fl, int ft, int tl, int tt, int n) { for (int i = 1; i <= n; i++) { SetWindowPos(h, IntPtr.Zero, fl + (tl - fl) * i / n, ft + (tt - ft) * i / n, 0, 0, 0x15); Thread.Sleep(16); } }',
+  'static bool Shake(IntPtr h) {',
+  '  RECT r; if (!GetWindowRect(h, out r)) return false;',
+  '  bool ok = true; int[] o = new int[] { -10, 10, -8, 8, -6, 6, -3, 3, 0 };',
+  '  foreach (int d in o) { ok &= SetWindowPos(h, IntPtr.Zero, r.L + d, r.T, 0, 0, 0x15); Thread.Sleep(30); }',
+  '  return ok;',
+  '}',
+  // a shove is quick and goes the other way if there is no room; a tow is slow and goes where it is told
+  'static bool Shove(IntPtr h, int dx, bool tow) {',
+  '  RECT r; MONITORINFO mi = new MONITORINFO(); mi.cbSize = 40;',
+  '  if (!GetWindowRect(h, out r) || !GetMonitorInfo(MonitorFromWindow(h, 2), ref mi)) return false;',
+  '  int lo = Math.Min(r.L, mi.rcWork.L); int hi = Math.Max(r.L, mi.rcWork.R - (r.R - r.L));',
+  '  int to = Math.Max(lo, Math.Min(hi, r.L + dx)); if (!tow && Math.Abs(to - r.L) < 24) to = Math.Max(lo, Math.Min(hi, r.L - dx));',
+  '  if (Math.Abs(to - r.L) < 24) return false;',
+  '  long k = h.ToInt64(); int[] m;',
+  '  if (!Moved.TryGetValue(k, out m) || m[2] != r.L || m[3] != r.T) m = new int[] { r.L, r.T, 0, 0 };',
+  '  Slide(h, r.L, r.T, to, r.T, tow ? 140 : 12);',
+  '  RECT n; if (!GetWindowRect(h, out n) || n.L == r.L) return false;',
+  '  m[2] = n.L; m[3] = n.T; Moved[k] = m; return true;',
+  '}',
+  'static void Back() {',
+  '  foreach (System.Collections.Generic.KeyValuePair<long, int[]> e in Moved) {',
+  '    IntPtr h = new IntPtr(e.Key); RECT r;',
+  '    if (IsWindow(h) && !IsIconic(h) && !IsZoomed(h) && GetWindowRect(h, out r) && r.L == e.Value[2] && r.T == e.Value[3]) Slide(h, r.L, r.T, e.Value[0], e.Value[1], 12);',
+  '  }',
+  '  Moved.Clear();',
+  '}',
+  'static bool Tug(int dx, int dy) { POINT p; if (!GetCursorPos(out p)) return false; for (int i = 1; i <= 16; i++) { SetCursorPos(p.X + dx * i / 16, p.Y + dy * i / 16); Thread.Sleep(14); } return true; }',
+  // one order a line: "D shake|shove|tow|tug|grab|back <window, 0 = the one in front> <dx> <dy>",
+  // answered with "D <order> 1" if something moved. "pull" is one small step of the pointer
+  // with no answer, for holding on to it. If Clawd goes away, everything is put back first.
+  'static void Hands(int owner) {',
+  '  while (true) {',
+  '    string s = Console.In.ReadLine(); if (s == null) { Back(); return; }',
+  '    string[] a = s.Trim().Split((char)32); if (a.Length != 5 || a[0] != "D") continue;',
+  '    bool ok = false;',
+  '    try {',
+  '      if (a[1] == "back") { Back(); continue; }',
+  '      long w = long.Parse(a[2]); int x = int.Parse(a[3]); int y = int.Parse(a[4]);',
+  '      if (GetAsyncKeyState(1) >= 0 && GetAsyncKeyState(2) >= 0) {',
+  '        if (a[1] == "pull") { POINT p; if (GetCursorPos(out p)) SetCursorPos(p.X + x, p.Y + y); continue; }',
+  '        if (a[1] == "tug" || a[1] == "grab") ok = Tug(x, y);',
+  '        else { IntPtr h = w == 0 ? GetForegroundWindow() : new IntPtr(w); if (Fair(h, owner)) ok = a[1] == "shove" ? Shove(h, x, false) : a[1] == "tow" ? Shove(h, x, true) : a[1] == "shake" && Shake(h); }',
+  '      } else if (a[1] == "pull") continue;',
+  '    } catch { }',
+  '    Say("D " + a[1] + (ok ? " 1" : " 0"));',
+  '  }',
+  '}',
+  'public static void Run(int owner, int ms, int sites, int hands) {',
   '  Thread t = new Thread(new ThreadStart(Keys)); t.IsBackground = true; t.Start();',
-  '  string last = null; string lastFront = null; int n = 0; int full = 0; int mic = 0; uint frontPid = 0; string front = "";',
+  '  if (sites != 0) { Thread p = new Thread(delegate() { Pages(owner); }); p.IsBackground = true; p.Start(); }',
+  '  if (hands != 0) { Thread d = new Thread(delegate() { Hands(owner); }); d.IsBackground = true; d.Start(); }',
+  '  string last = null; string lastFront = null; int n = 0; int full = 0; int mic = 0; uint frontPid = 0; string front = ""; IntPtr lastFg = IntPtr.Zero;',
   '  while (true) {',
   '    if (n++ % 8 == 0) { try { System.Diagnostics.Process.GetProcessById(owner); } catch { return; } }',
   '    StringBuilder sb = new StringBuilder();',
@@ -304,6 +415,7 @@ const WATCH_CS = [
   '      if (c != "Progman" && c != "WorkerW" && c != "Shell_TrayWnd" && !IsZoomed(fg) && GetWindowRect(fg, out fr) && GetMonitorInfo(MonitorFromWindow(fg, 2), ref mi)) {',
   '        if (fr.L <= mi.rcMonitor.L && fr.T <= mi.rcMonitor.T && fr.R >= mi.rcMonitor.R && fr.B >= mi.rcMonitor.B) full = 1;',
   '      }',
+  '      if (fg != lastFg) { lastFg = fg; Say("A " + fg.ToInt64()); }',
   '      if (fp != frontPid) { frontPid = fp; try { front = System.Diagnostics.Process.GetProcessById((int)fp).ProcessName; } catch { front = ""; } }',
   '    }',
   '    if (n % 20 == 1) mic = Mic() ? 1 : 0;',
@@ -311,7 +423,28 @@ const WATCH_CS = [
   '    if (f != lastFront) { lastFront = f; Say("F " + f); }',
   '    Thread.Sleep(ms);',
   '  }',
-  '} } }',
+  '}',
+  // the same on a thread of its own, leaving PowerShell free to run MUSIC_PS
+  'public static void Go(int owner, int ms, int sites, int hands) { Thread t = new Thread(delegate() { Run(owner, ms, sites, hands); Environment.Exit(0); }); t.Start(); }',
+  '} }',
+].join(' ');
+
+// "Listen to my music": every two seconds, ask Windows what is playing (the same thing its
+// own media flyout shows) and print a line when that changes: the title, the artist and the
+// program it comes from, in base64 so nothing in a title can break the line. Only sent to the
+// helper while the setting is on.
+const MUSIC_PS = [
+  'try { Add-Type -AssemblyName System.Runtime.WindowsRuntime;',
+  '$at = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq \'AsTask\' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq \'IAsyncOperation`1\' })[0];',
+  'function Aw($o, $t) { $k = $at.MakeGenericMethod($t).Invoke($null, @($o)); if ($k.Wait(3000)) { $k.Result } };',
+  '$MT = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime];',
+  '$PT = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties,Windows.Media.Control,ContentType=WindowsRuntime];',
+  '$mgr = Aw ($MT::RequestAsync()) $MT; $was = \'\';',
+  'while ($mgr) { $now = \'M 0\';',
+  '  try { $s = @($mgr.GetCurrentSession()) + @($mgr.GetSessions()) | Where-Object { $_ -and [int]$_.GetPlaybackInfo().PlaybackStatus -eq 4 } | Select-Object -First 1;',
+  '    if ($s) { $p = Aw ($s.TryGetMediaPropertiesAsync()) $PT; if ($p -and $p.Title) { $now = \'M 1 \' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($s.SourceAppUserModelId + [char]9 + $p.Title + [char]9 + $p.Artist)) } } } catch { }',
+  '  if ($now -ne $was) { $was = $now; [Buddy.Watch]::Say($now) }',
+  '  Start-Sleep -Milliseconds 2000 } } catch { }',
 ].join(' ');
 
 // The program in front, boiled down to a kind of activity. Only the kind reaches Clawd.
@@ -324,9 +457,25 @@ const APP_KINDS = [
   ['music', /^(spotify|applemusic|foobar2000|musicbee|vlc|mpv|mpc-hc64|wmplayer|tidal)$/i],
   ['art', /^(blender|photoshop|illustrator|figma|krita|gimp.*|aseprite|inkscape|afterfx|resolve|paintdotnet)$/i],
   ['taking', /^(ida64|ida|idaq64|ghidra.*|x64dbg|x32dbg|cheatengine.*|dnspy|ilspy)$/i],
+  ['ai', /^(chatgpt|copilot|perplexity|gemini|lm studio|ollama app)$/i],
   ['files', /^explorer$/i],
   ['game', /^(steam|steamwebhelper|epicgameslauncher|galaxyclient|playnite.*)$/i],
 ];
+
+// A game is the one program Clawd knows by name: whatever fills the screen and is not on
+// the lists above or this one. The name is the program's file name, tidied up.
+const NOT_GAMES = /^(powerpnt|mstsc|vmware.*|virtualbox.*|obs64|obs32|photos|applicationframehost|potplayer.*|kodi|searchhost|lockapp|shellexperiencehost|snippingtool|screenclippinghost|video\.ui|microsoft\.media\.player)$/i;
+const GAME_NAMES = {
+  javaw: 'Minecraft', cs2: 'Counter-Strike 2', dota2: 'Dota 2', rocketleague: 'Rocket League', eldenring: 'Elden Ring',
+  bg3: 'Baldur\'s Gate 3', bg3_dx11: 'Baldur\'s Gate 3', gta5: 'GTA V', witcher3: 'The Witcher 3', hl2: 'Half-Life 2',
+  robloxplayerbeta: 'Roblox', fortniteclient: 'Fortnite', leagueclient: 'League of Legends', r5apex: 'Apex Legends',
+};
+function gameName(exe) {
+  const bare = exe.toLowerCase().replace(/[-_ ]?(win64|win32|x64|x86)?[-_ ]?shipping$/, '').replace(/[-_ ]?(win64|x64)$/, '');
+  if (GAME_NAMES[bare]) return GAME_NAMES[bare];
+  const words = exe.replace(/[-_ ]?(win64|win32|x64|x86)?[-_ ]?shipping$/i, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 24).trim();
+  return words.length <= 4 ? words.toUpperCase() : words.replace(/(^| )\p{Ll}/gu, (c) => c.toUpperCase());
+}
 
 function onFront(line) {
   const m = /^(\d) (\d) (.*)$/.exec(line);
@@ -336,14 +485,96 @@ function onFront(line) {
   const hit = APP_KINDS.find(([, re]) => re.test(name));
   // something unknown filling the whole screen is most likely a game or a film
   const app = hit ? hit[0] : full && name ? 'game' : '';
-  presence = { full, mic: m[2] === '1', app: settings.notice ? app : '', seq: presence.seq + (name !== lastApp ? 1 : 0) };
+  const game = !hit && app === 'game' && settings.notice && !NOT_GAMES.test(name) ? gameName(name) : '';
+  presence = { full, mic: m[2] === '1', app: settings.notice ? app : '', game, seq: presence.seq + (name !== lastApp ? 1 : 0) };
   lastApp = name;
   send('buddy-presence', presence);
 }
 
+// "Is it for me?": a new file in the Downloads folder. Clawd is told its extension and its
+// size, like a dropped snack, and nothing else about it.
+function watchDownloads() {
+  const pending = new Map();
+  const told = new Map();
+  try {
+    const dir = app.getPath('downloads');
+    fs.watch(dir, (_ev, name) => {
+      if (!settings.notice || typeof name !== 'string' || name.startsWith('.') || /\.(crdownload|part|partial|download|tmp|opdownload)$/i.test(name)) return;
+      clearTimeout(pending.get(name));
+      pending.set(name, setTimeout(() => {
+        pending.delete(name);
+        fs.stat(path.join(dir, name), (err, st) => {
+          const now = Date.now();
+          if (err || !st.isFile() || now - Math.max(st.birthtimeMs, st.ctimeMs) > 60000 || now - (told.get(name) || 0) < 600000) return;
+          if (told.size > 200) told.clear();
+          told.set(name, now);
+          send('buddy-download', { ext: ((/\.([a-z0-9]{1,8})$/i.exec(name) || [])[1] || '').toLowerCase(), size: st.size });
+        });
+      }, 1500));
+    }).on('error', () => {});
+  } catch {}
+}
+
+// Where a tune comes from, as a kind: a music player, or a browser (where it may be a video).
+const TUNE_PLAYERS = /spotify|applemusic|itunes|zunemusic|foobar|musicbee|tidal|deezer|winamp|aimp|amazon.?music|yandex.?music/i;
+const TUNE_BROWSERS = /chrome|msedge|firefox|308046B0AF4A39CB|brave|opera|vivaldi|arc|zen/i;
+const tidy = (s, n) => String(s || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, n);
+
+function onMusic(line) {
+  if (!settings.music) return;
+  const m = /^1 ([A-Za-z0-9+/=]{1,4000})$/.exec(line);
+  let tune = null;
+  if (m) {
+    const [src, title, artist] = Buffer.from(m[1], 'base64').toString('utf8').split('\t');
+    if (tidy(title, 80)) {
+      tune = { title: tidy(title, 80), artist: tidy(artist, 60), from: TUNE_PLAYERS.test(src) ? 'player' : TUNE_BROWSERS.test(src) ? 'browser' : '' };
+    }
+  }
+  send('buddy-music', tune);
+}
+
+// The site in front, boiled down to a kind from its host name. Only the kind reaches Clawd,
+// and the host is not kept. First match wins, so the google.com subdomains come before search.
+const SITE_KINDS = [
+  ['call', /(^|\.)(meet\.google\.com|zoom\.us|teams\.microsoft\.com|teams\.live\.com|whereby\.com)$/],
+  // explicit sites: the best-known ones by name, the adult top-level domains, and any host that says so itself
+  ['adult', /(^|\.)(pornhub\.[a-z]+|xvideos\.[a-z0-9]+|xnxx\.[a-z]+|xhamster[a-z0-9]*\.[a-z]+|redtube\.com|youporn\.com|spankbang\.com|eporner\.com|tube8\.com|youjizz\.com|beeg\.com|tnaflix\.com|motherless\.com|brazzers\.com|onlyfans\.com|rule34\.xxx|fansly\.com|chaturbate\.com|stripchat\.com|bongacams\.com|cam4\.com|myfreecams\.com|livejasmin\.com|literotica\.com|f95zone\.to|iwara\.tv|hanime\.tv|e-hentai\.org|exhentai\.org|gelbooru\.com|e621\.net|rule34\.[a-z.]+)$|\.(xxx|porn|sex|adult)$|porn|hentai|xxx(?!l)/],
+  ['code', /(^|\.)(github\.com|gitlab\.com|bitbucket\.org|stackoverflow\.com|stackexchange\.com|npmjs\.com|developer\.mozilla\.org)$/],
+  ['claude', /(^|\.)(claude\.ai|claude\.com|anthropic\.com)$/],
+  ['ai', /(^|\.)(chatgpt\.com|openai\.com|gemini\.google\.com|aistudio\.google\.com|copilot\.microsoft\.com|perplexity\.ai|deepseek\.com|grok\.com|mistral\.ai|meta\.ai|poe\.com|character\.ai)$/],
+  ['video', /(^|\.)(youtube\.com|twitch\.tv|netflix\.com|vimeo\.com|disneyplus\.com|primevideo\.com|hulu\.com|crunchyroll\.com)$/],
+  ['social', /(^|\.)(reddit\.com|twitter\.com|x\.com|instagram\.com|facebook\.com|tiktok\.com|bsky\.app|linkedin\.com|threads\.net|threads\.com|tumblr\.com|mastodon\.social)$/],
+  ['shop', /(^|\.)(amazon\.[a-z.]+|ebay\.[a-z.]+|aliexpress\.[a-z]+|etsy\.com|temu\.com)$/],
+  ['mail', /(^|\.)(mail\.google\.com|outlook\.live\.com|outlook\.office\.com|mail\.proton\.me|mail\.yahoo\.com)$/],
+  ['docs', /(^|\.)(docs\.google\.com|notion\.so|overleaf\.com|atlassian\.net)$/],
+  ['wiki', /(^|\.)(wikipedia\.org|fandom\.com)$/],
+  ['search', /(^|\.)(google\.[a-z.]+|bing\.com|duckduckgo\.com)$/],
+];
+let lastSite = '';
+
+function onPage(host) {
+  if (!settings.pages) return;
+  const ok = /^[a-z0-9.?-]{1,100}$/.test(host);
+  const hit = ok && SITE_KINDS.find(([, re]) => re.test(host));
+  const kind = hit ? hit[0] : ok ? 'other' : '';
+  if (kind === lastSite) return;
+  lastSite = kind;
+  send('buddy-page', kind);
+}
+
 function onWindows(line) {
   if (line === 'K') { if (settings.typing) send('buddy-key'); return; }
+  if (line === 'C') { if (settings.notice) send('buddy-copy'); return; }
   if (line.startsWith('F ')) return onFront(line.slice(2));
+  if (line.startsWith('M ')) return onMusic(line.slice(2));
+  if (line === 'P' || line.startsWith('P ')) return onPage(line.slice(2));
+  if (line.startsWith('A ')) { frontH = Number(line.slice(2)) || 0; return; }
+  if (line.startsWith('D ')) {
+    const m = /^D (shake|shove|tug|grab|tow) ([01])$/.exec(line);
+    if (m && m[1] === 'grab') onGrab(m[2] === '1');
+    else if (m && settings.meddle) send('buddy-meddled', { what: m[1], ok: m[2] === '1' });
+    return;
+  }
   if (!line.startsWith('W ')) return;
   const list = [];
   for (const part of line.slice(2).split(';')) {
@@ -378,12 +609,312 @@ function startWatcher() {
   });
   child.on('error', () => {});
   child.on('exit', () => {
-    if (watcher === child) watcher = null;
+    if (watcher !== child) return; // replaced by restartWatcher
+    watcher = null;
     windows = [];
     platforms = [];
   });
   child.stdin.on('error', () => {});
-  child.stdin.write(`Add-Type -TypeDefinition '${WATCH_CS}'; [Buddy.Watch]::Run(${process.pid}, 120)\n`);
+  const args = `${process.pid}, 120, ${settings.pages ? 1 : 0}, ${settings.meddle ? 1 : 0}`;
+  const run = settings.music ? `[Buddy.Watch]::Go(${args}); ${MUSIC_PS}` : `[Buddy.Watch]::Run(${args})`;
+  child.stdin.write(`Add-Type -ReferencedAssemblies UIAutomationClient, UIAutomationTypes -TypeDefinition '${WATCH_CS}'; ${run}\n`);
+}
+
+// "Listen to my music" or "Notice which sites I'm on" was switched: the helper only reads
+// what is playing, or the browser's address bar, while that one is on
+function restartWatcher() {
+  if (watcher) { const child = watcher; watcher = null; child.kill(); }
+  startWatcher();
+}
+
+// ---- meddling: "Let him mess with my desktop" ----
+
+// The renderer decides when he is cross, jealous or up to something; this decides what he
+// goes after and how he gets there. He walks, floats or jumps over to it first (approach),
+// and only then is the helper asked to move anything (act). The helper has the last word on
+// whether a window is fair game (see Hands).
+ipcMain.on('buddy-meddle', (_e, what) => {
+  if (!settings.meddle || !win || win.isDestroyed()) return;
+  if (what === 'back') { if (watcher) watcher.stdin.write('D back 0 0 0\n'); return; }
+  if (what === 'letgo') return endHold('click');
+  if (what === 'unblock') return comeBack(6);
+  if (what === 'prints') return send('buddy-meddled', { what, ok: !presence.full && printsToPointer() });
+  if (!['shake', 'shove', 'tow', 'tug', 'hold', 'war', 'block'].includes(what)) return;
+  if (presence.full || dragOffset || fall || walk || chase || holding || war) return send('buddy-meddled', { what, ok: false });
+  if (what === 'war') startWar();
+  else if (what === 'block') block();
+  else if (what === 'tug' || what === 'hold') stalkPointer(what);
+  else stalkWindow(what);
+});
+
+// he is where he is going to get: now the shake, the shove or the tug itself
+function act(what, h) {
+  let order = '';
+  if (win && !win.isDestroyed() && settings.meddle && !presence.full && !dragOffset && !fall) {
+    const { dx, dy, d, scale } = toHim();
+    if (what === 'tug') {
+      // the pointer comes part of the way over to him, if it is near enough to reach
+      const k = Math.min(0.6, 280 / d) * scale;
+      if (d > 60 && d < 900) order = `D tug 0 ${Math.round(dx * k)} ${Math.round(dy * k)}`;
+    } else if (what === 'hold') {
+      // all the way, into his arms
+      if (d <= 30) return onGrab(true);
+      if (d < 900) order = `D grab 0 ${Math.round(dx * scale)} ${Math.round(dy * scale)}`;
+    } else if (what === 'tow') {
+      // off towards his bed with it, or the nearest side of the screen if he has none
+      const p = windows.find((q) => q.h === h);
+      const a = area();
+      if (p) {
+        const mid = (p.l + p.r) / 2;
+        const bed = bedWin && !bedWin.isDestroyed() ? bedWin.getBounds().x + BED_W / 2 : null;
+        const goal = bed !== null ? bed : mid < a.x + a.width / 2 ? a.x + (p.r - p.l) / 2 : a.x + a.width - (p.r - p.l) / 2;
+        if (Math.abs(goal - mid) > 80) order = `D tow ${h} ${Math.round((goal - mid) * scale)} 0`;
+      }
+      if (order) send('buddy-meddled', { what: 'towing', ok: true });
+    } else {
+      const far = Math.round((70 + Math.random() * 90) * scale) * (Math.random() < 0.5 ? -1 : 1);
+      order = `D ${what} ${h || 0} ${what === 'shove' ? far : 0} 0`;
+    }
+  }
+  if (!order || !watcher) return send('buddy-meddled', { what, ok: false });
+  watcher.stdin.write(order + '\n');
+}
+
+// from the pointer to his middle, in screen DIPs, and the scale the helper works at
+function toHim() {
+  const b = win.getBounds();
+  const c = screen.getCursorScreenPoint();
+  const dx = b.x + WIN_W / 2 - c.x;
+  const dy = b.y + WIN_H * 0.6 - c.y;
+  return { dx, dy, d: Math.hypot(dx, dy) || 1, scale: screen.getDisplayNearestPoint(c).scaleFactor || 1 };
+}
+
+// He has the pointer and is not giving it back: every time it gets away it is fetched again.
+// A click on him ends it (the renderer says so), and it ends by itself after a few seconds.
+// Holding a mouse button down always gets it free, since the helper will not move it then.
+function onGrab(ok) {
+  if (!ok || holding || !settings.meddle) return send('buddy-meddled', { what: 'hold', ok: false });
+  holding = { until: Date.now() + 8000, timer: setInterval(holdTick, 50) };
+  send('buddy-meddled', { what: 'hold', ok: true });
+}
+
+function holdTick() {
+  if (!holding) return;
+  if (!win || win.isDestroyed() || !watcher || !settings.meddle || presence.full || dragOffset || fall || Date.now() > holding.until) return endHold('time');
+  const { dx, dy, d, scale } = toHim();
+  if (d > 24) watcher.stdin.write(`D pull 0 ${Math.round(dx * scale * 0.8)} ${Math.round(dy * scale * 0.8)}\n`);
+}
+
+function endHold(by) {
+  if (!holding) return;
+  clearInterval(holding.timer);
+  holding = null;
+  send('buddy-meddled', { what: 'letgo', ok: true, by });
+}
+
+// Tug of war: for four seconds he hauls the pointer towards himself a little at a time. Get
+// it further away than it started and you win; let it reach him and he does.
+function startWar() {
+  const { d } = toHim();
+  if (!watcher || d < 90 || d > 900) return send('buddy-meddled', { what: 'war', ok: false });
+  war = { d0: d, until: Date.now() + 4000, timer: setInterval(warTick, 60) };
+  send('buddy-meddled', { what: 'war', ok: true });
+}
+
+function warTick() {
+  if (!war) return;
+  const over = (won) => {
+    clearInterval(war.timer);
+    const was = war;
+    war = null;
+    send('buddy-meddled', { what: 'warover', ok: true, won: won || (was.last > was.d0 + 30 ? 'you' : was.last < was.d0 - 30 ? 'him' : 'draw') });
+  };
+  if (!win || win.isDestroyed() || !watcher || !settings.meddle || presence.full || dragOffset || fall) return over('draw');
+  const { dx, dy, d, scale } = toHim();
+  war.last = d;
+  if (d < 60) return over('him');
+  if (d > war.d0 + 420) return over('you');
+  if (Date.now() > war.until) return over('');
+  const k = (9 * scale) / d;
+  watcher.stdin.write(`D pull 0 ${Math.round(dx * k)} ${Math.round(dy * k)}\n`);
+}
+
+// Sitting on what you are reading: he goes and plants himself over the pointer, wherever on
+// the screen that is, and stays there until the renderer says he may go back ('unblock').
+function block() {
+  if (!settings.wander) return send('buddy-meddled', { what: 'block', ok: false });
+  const c = screen.getCursorScreenPoint();
+  const a = screen.getDisplayNearestPoint(c).workArea;
+  if (!awayFrom) awayFrom = { perch };
+  perch = null;
+  errand(clampX(a, c.x - WIN_W / 2), Math.min(Math.max(c.y - WIN_H * 0.55, a.y - HEAD_PAD), floorY(a)), () => send('buddy-meddled', { what: 'block', ok: true }));
+}
+
+// back to where he lives, and onto the window he was standing on if that is where it was
+function comeBack(step) {
+  if (!win || win.isDestroyed() || dragOffset || fall) return send('buddy-walk-done');
+  const b = win.getBounds();
+  walk = { x: b.x, y: b.y, tx: home.x, ty: home.y, perch: awayFrom ? awayFrom.perch : null, step };
+  awayFrom = null;
+}
+
+// Nobody has touched the computer for a while: he has the run of the screen. Each call is
+// one leg to somewhere new, with footprints behind him; false sends him scrambling home.
+ipcMain.on('buddy-roam', (_e, on) => {
+  if (!win || win.isDestroyed()) return;
+  if (!on) return awayFrom ? comeBack(14) : send('buddy-walk-done');
+  if (!settings.meddle || !settings.wander || dragOffset || fall || presence.full || chase) return send('buddy-walk-done');
+  if (!awayFrom) awayFrom = { perch };
+  perch = null;
+  const a = area();
+  const b = win.getBounds();
+  const tx = a.x + Math.random() * (a.width - WIN_W);
+  const ty = Math.min(a.y + Math.random() * (a.height - WIN_H * 0.6) - HEAD_PAD / 2, floorY(a));
+  showPrints({ x: b.x + WIN_W / 2, y: b.y + WIN_H - FOOT_PAD }, { x: tx + WIN_W / 2, y: ty + WIN_H - FOOT_PAD });
+  walk = { x: b.x, y: b.y, tx, ty, step: 5 };
+});
+
+// Where he would stand on window number i of the list: on its top edge, as near to where he
+// is now as its width allows. Nothing if it is maximised, off his screen, too near the top
+// of it for him to fit, or covered there by a window above.
+function footing(i) {
+  const p = windows[i];
+  if (!p || p.zoomed || p.r - p.l < 120) return null;
+  const a = area();
+  const inset = Math.min(70, (p.r - p.l) / 2);
+  const sx = Math.min(Math.max(win.getBounds().x + WIN_W / 2, p.l + inset), p.r - inset);
+  const y = p.t - (WIN_H - FOOT_PAD);
+  if (sx < a.x || sx > a.x + a.width || y < a.y - HEAD_PAD + 10 || p.t > a.y + a.height - 8) return null;
+  for (let j = 0; j < i; j++) {
+    const q = windows[j];
+    if (sx >= q.l && sx <= q.r && p.t >= q.t && p.t <= q.b) return null;
+  }
+  return { h: p.h, sx, y };
+}
+
+// a purposeful walk, quicker than a wander, with something to do at the end of it
+function errand(tx, ty, then) {
+  const b = win.getBounds();
+  walk = { x: b.x, y: b.y, tx, ty, step: 6, then };
+  send('buddy-meddling');
+}
+
+// The window he is after is the one in front, or failing that the top-most one he can get
+// onto. Standing on it already, he gets on with it; otherwise he goes there first.
+function stalkWindow(what) {
+  // only a small window is worth dragging home
+  const a = area();
+  const fits = (i) => (what !== 'tow' || (windows[i].r - windows[i].l < a.width * 0.6 && windows[i].b - windows[i].t < a.height * 0.75) ? footing(i) : null);
+  const front = windows.findIndex((p) => p.h === frontH);
+  let spot = front >= 0 ? fits(front) : null;
+  for (let i = 0; !spot && i < windows.length; i++) spot = fits(i);
+  if (what === 'tow' && !spot) return act(what, 0);
+  if (perch && (!spot || spot.h === perch.h)) return act(what, perch.h);
+  if (!spot || !settings.wander) return act(what, perch ? perch.h : frontH);
+  const b = win.getBounds();
+  const gap = spot.sx - (b.x + WIN_W / 2);
+  if (!settings.gravity) return errand(spot.sx - WIN_W / 2, spot.y, () => act(what, spot.h)); // floats up to it
+  if (!platforms.length) return errand(clampX(area(), spot.sx - WIN_W / 2), b.y, () => act(what, spot.h)); // as near as the floor gets
+  // on the floor and a long way off: a run-up first, then the jump
+  if (!perch && Math.abs(gap) > 220) return errand(clampX(area(), b.x + gap - Math.sign(gap) * 150), b.y, () => leap(what, spot.h));
+  leap(what, spot.h);
+}
+
+// A jump onto a window: up over its top edge and down onto it, by the same physics as a fall.
+function leap(what, h) {
+  const spot = footing(windows.findIndex((p) => p.h === h));
+  if (!spot || !platforms.length || dragOffset || fall) return act(what, h);
+  const b = win.getBounds();
+  const room = Math.max(0, Math.min(b.y, spot.y) - (area().y - HEAD_PAD));
+  const rise = b.y - Math.min(b.y, spot.y) + Math.min(60, room);
+  // fly it through once to see how many ticks it takes, so the sideways speed comes out right
+  let vy0 = -(Math.sqrt(2 * GRAVITY * rise) + GRAVITY);
+  let ticks = 0;
+  for (let tries = 0; tries < 8; tries++) {
+    let y = b.y;
+    let vy = vy0;
+    let top = y;
+    for (ticks = 0; ticks < 600 && !(vy > 0 && y >= spot.y); ticks++) { vy += GRAVITY; y += vy; top = Math.min(top, y); }
+    if (top <= spot.y - 2 || spot.y >= b.y) break;
+    vy0 -= 2;
+  }
+  let reach = 0;
+  for (let k = 1; k <= ticks; k++) reach += 0.995 ** k;
+  perch = null;
+  walk = null;
+  fall = {
+    x: b.x, y: b.y, vx: (spot.sx - WIN_W / 2 - b.x) / (reach || 1), vy: vy0, peak: 0, bounces: 0, ground: null, jump: true,
+    // wherever he came down, that is the one that gets it
+    then: () => act(what, perch ? perch.h : h),
+  };
+  send('buddy-fly', { speed: 0, jump: true });
+}
+
+// After the pointer: he goes over until it is within reach, then grabs it.
+function stalkPointer(what) {
+  const b = win.getBounds();
+  const c = screen.getCursorScreenPoint();
+  const dx = c.x - (b.x + WIN_W / 2);
+  const dy = c.y - (b.y + WIN_H / 2);
+  if (!settings.wander) return act(what);
+  if (!settings.gravity) {
+    const d = Math.hypot(dx, dy);
+    if (d <= 220) return act(what);
+    const a = screen.getDisplayNearestPoint(c).workArea;
+    return errand(clampX(a, b.x + dx * (d - 150) / d), Math.min(Math.max(b.y + dy * (d - 150) / d, a.y), a.y + a.height - WIN_H), () => act(what));
+  }
+  // with gravity he can only get underneath it, along the floor or the window he is on
+  let tx = clampX(area(), c.x - Math.sign(dx) * 110 - WIN_W / 2);
+  const p = perch && platforms.find((q) => q.h === perch.h);
+  if (p) tx = Math.min(Math.max(tx, p.l + 20 - WIN_W / 2), p.r - 20 - WIN_W / 2);
+  if (Math.abs(dx) <= 170 || Math.abs(tx - b.x) < 30) return act(what);
+  errand(tx, b.y, () => act(what));
+}
+
+// Footprints from where he stands to where the pointer is, in a window of their own that
+// clicks pass straight through. Gone in a few seconds.
+function printsToPointer() {
+  if (printWins.size || !win || win.isDestroyed()) return false;
+  const a = area();
+  const b = win.getBounds();
+  const c = screen.getCursorScreenPoint();
+  const from = { x: b.x + WIN_W / 2, y: b.y + WIN_H - FOOT_PAD };
+  let to = { x: Math.min(Math.max(c.x, a.x), a.x + a.width), y: Math.min(Math.max(c.y, a.y), a.y + a.height) };
+  if (Math.hypot(to.x - from.x, to.y - from.y) < 260) to = { x: a.x + a.width - (from.x - a.x), y: a.y + a.height * 0.3 };
+  return showPrints(from, to);
+}
+
+// a trail between two points on his screen; a few trails can be fading at once
+function showPrints(from, to) {
+  if (printWins.size >= 3 || !win || win.isDestroyed()) return false;
+  const a = area();
+  const w = new BrowserWindow({
+    x: a.x,
+    y: a.y,
+    width: a.width,
+    height: a.height,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    hasShadow: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  printWins.add(w);
+  w.setIgnoreMouseEvents(true);
+  w.setAlwaysOnTop(true, 'floating');
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
+  w.once('ready-to-show', () => {
+    w.showInactive();
+    if (win && !win.isDestroyed()) win.moveTop(); // he stands on them, not under
+  });
+  w.on('closed', () => printWins.delete(w));
+  w.loadFile('prints.html', { hash: [from.x - a.x, from.y - a.y, to.x - a.x, to.y - a.y].map(Math.round).join(',') });
+  setTimeout(() => { if (!w.isDestroyed()) w.close(); }, 15000);
+  return true;
 }
 
 // "Sit on windows" (or gravity) was switched: the helper keeps running for everything else it
@@ -463,16 +994,20 @@ function stepWalk() {
   const dx = walk.tx - walk.x;
   const dy = walk.ty - walk.y;
   const d = Math.hypot(dx, dy);
-  const done = d <= WALK_STEP;
-  walk.x = done ? walk.tx : walk.x + (dx / d) * WALK_STEP;
-  walk.y = done ? walk.ty : walk.y + (dy / d) * WALK_STEP;
+  const step = walk.step || WALK_STEP;
+  const done = d <= step;
+  walk.x = done ? walk.tx : walk.x + (dx / d) * step;
+  walk.y = done ? walk.ty : walk.y + (dy / d) * step;
   setPos(walk.x, walk.y);
   if (done) {
     if (walk.setHome) home = { x: Math.round(walk.tx), y: Math.round(walk.ty) };
     const back = walk.perch;
+    const then = walk.then;
+    const corner = walk.corner;
     walk = null;
     if (back) { perch = back; followPerch(); } // home was on top of a window
-    send('buddy-walk-done');
+    send('buddy-walk-done', corner ? { corner } : undefined);
+    if (then) then(); // he came over here to do something
   }
   checkPerchEdge();
 }
@@ -496,7 +1031,11 @@ function stepFall() {
     f.y = ground.y;
     f.ground = ground;
     f.peak = Math.max(f.peak, f.vy);
-    if (f.vy > 6) {
+    if (f.jump && ground.h) {
+      // a jump he meant: he lands where he aimed and stays there
+      f.vx = f.vy = 0;
+      landed = true;
+    } else if (f.vy > 6) {
       f.vy = -f.vy * 0.45;
       f.vx *= 0.75;
       f.bounces++;
@@ -512,7 +1051,8 @@ function stepFall() {
     fall = null;
     home = { x: Math.round(f.x), y: Math.round(f.y) };
     perch = f.ground && f.ground.h ? { h: f.ground.h, l: f.ground.l, t: f.ground.t } : null;
-    send('buddy-landed', { impact: f.peak, bounces: f.bounces, perch: !!perch });
+    send('buddy-landed', { impact: f.peak, bounces: f.bounces, perch: !!perch, jump: !!f.jump, down: !!f.down });
+    if (f.then) f.then();
   }
 }
 
@@ -657,6 +1197,8 @@ ipcMain.on('buddy-drag', (_e, on) => {
   fall = null;
   perch = null;
   hiding = null;
+  cornerFrom = null; // put somewhere by hand: that is home now
+  awayFrom = null;
   dragTrail = [];
   const c = screen.getCursorScreenPoint();
   const b = win.getBounds();
@@ -668,6 +1210,7 @@ ipcMain.on('buddy-walk', (_e, off) => {
   if (!win || win.isDestroyed() || dragOffset || fall) return;
   const ox = Number(off && off.x) || 0;
   const oy = Number(off && off.y) || 0;
+  if (!ox && !oy && awayFrom) return comeBack(WALK_STEP); // home from sitting on your page, or from roaming
   if (!settings.wander && (ox || oy)) return send('buddy-walk-done');
   const a = screen.getDisplayNearestPoint({ x: Math.round(home.x + ox + WIN_W / 2), y: Math.round(home.y + WIN_H / 2) }).workArea;
   const b = win.getBounds();
@@ -838,8 +1381,51 @@ ipcMain.on('buddy-go-bed', () => {
   const ty = settings.gravity ? b.y : bed.y + BED_H - (WIN_H - FOOT_PAD) - 6;
   if (Math.hypot(tx - b.x, ty - b.y) < 12) return send('buddy-walk-done');
   chase = false;
+  cornerFrom = null;
   walk = { x: b.x, y: b.y, tx, ty, setHome: true };
   win.moveTop();
+});
+
+// Hurt, he takes himself off to a bottom corner of the screen and lives there until he is
+// better: 'l' or 'r', or 'far' for whichever is further from the pointer. '' is the walk back
+// to where he came from. Up on a window, he gets down first.
+ipcMain.on('buddy-corner', (_e, side) => {
+  if (!win || win.isDestroyed() || dragOffset) return send('buddy-walk-done');
+  if (side === '') {
+    const was = cornerFrom;
+    cornerFrom = null;
+    if (fall) { fall.then = null; return send('buddy-walk-done'); } // still getting down: no need to go on
+    const b = win.getBounds();
+    if (!was || Math.abs(was.x - b.x) < 12) {
+      if (walk && walk.corner) { walk = null; home = { x: b.x, y: b.y }; }
+      return send('buddy-walk-done');
+    }
+    walk = { x: b.x, y: b.y, tx: clampX(area(), was.x), ty: settings.gravity ? b.y : was.y, setHome: true };
+    return;
+  }
+  if (fall) return send('buddy-walk-done');
+  chase = false;
+  hiding = null;
+  if (!cornerFrom) cornerFrom = { x: home.x, y: home.y };
+  const go = () => {
+    const a = area();
+    const b = win.getBounds();
+    const left = side === 'l' || (side !== 'r' && screen.getCursorScreenPoint().x > a.x + a.width / 2);
+    const tx = left ? a.x - SIDE_PAD : a.x + a.width - WIN_W + SIDE_PAD;
+    const ty = settings.gravity ? b.y : floorY(a);
+    const corner = left ? 'l' : 'r';
+    if (Math.hypot(tx - b.x, ty - b.y) < 12) {
+      home = { x: b.x, y: b.y };
+      return send('buddy-walk-done', { corner });
+    }
+    walk = { x: b.x, y: b.y, tx, ty, setHome: true, corner };
+  };
+  if (!perch || !settings.gravity) return go();
+  const b = win.getBounds();
+  perch = null;
+  walk = null;
+  fall = { x: b.x, y: b.y, vx: 0, vy: 0, peak: 0, bounces: 0, ground: null, down: true, then: go };
+  send('buddy-fly', { speed: 0, down: true });
 });
 
 // ---- hide and seek ----
@@ -881,6 +1467,7 @@ ipcMain.on('buddy-hide', (_e, on) => {
 
 // `tab`: which page it opens at ('' for the photos, 'diary', 'family')
 function openAlbum(tab = '') {
+  send('buddy-do', { what: 'album' }); // it sets him remembering
   if (albumWin && !albumWin.isDestroyed()) {
     albumWin.loadFile('album.html', { hash: tab });
     return albumWin.focus();
@@ -1040,6 +1627,14 @@ function setSetting(key, value) {
     send('buddy-fly', { speed: 0 });
   }
   if (key === 'gravity' || key === 'perch') refreshPlatforms();
+  if (key === 'music' || key === 'pages') { lastSite = ''; restartWatcher(); }
+  if (key === 'meddle') {
+    // the helper only listens for orders while this is on; switched off, it first puts
+    // back whatever he shoved
+    if (!value && watcher) watcher.stdin.write('D back 0 0 0\n');
+    if (!value) { endHold('time'); for (const w of printWins) if (!w.isDestroyed()) w.close(); }
+    setTimeout(restartWatcher, value ? 0 : 700);
+  }
   if (key === 'gravity') hiding = null;
 }
 
@@ -1174,9 +1769,13 @@ function buildMenu() {
     toggle('Gentle reminders', 'reminders'),
     { ...toggle('Bob along when I type', 'typing'), enabled: process.platform === 'win32' },
     { ...toggle('Notice what I\'m doing', 'notice'), enabled: process.platform === 'win32' },
+    { ...toggle('Listen to my music', 'music'), enabled: process.platform === 'win32' },
+    { ...toggle('Notice which sites I\'m on', 'pages'), enabled: process.platform === 'win32' },
     toggle('Curious wandering', 'wander'),
     toggle('Gravity', 'gravity'),
     { ...toggle('Sit on windows', 'perch'), enabled: settings.gravity && process.platform === 'win32' },
+    toggle('Let him mess with my desktop', 'meddle'),
+    toggle('A pet of his own', 'pet'),
     {
       label: 'Start with Windows',
       type: 'checkbox',
@@ -1352,6 +1951,7 @@ if (!app.requestSingleInstanceLock()) {
     startWatcher();
     startServer();
     // a few things about the computer itself that it likes to remark on
+    watchDownloads();
     powerMonitor.on('on-battery', () => send('buddy-world', 'battery'));
     powerMonitor.on('on-ac', () => send('buddy-world', 'ac'));
     screen.on('display-added', () => send('buddy-world', 'display-added'));
@@ -1360,7 +1960,14 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('before-quit', () => {
     if (memoryTimer) flushMemory();
-    if (watcher) { const child = watcher; watcher = null; child.kill(); }
+    if (watcher) {
+      const child = watcher;
+      watcher = null;
+      // with its orders cut off the helper slides back any window he shoved, then notices
+      // Clawd has gone and stops by itself
+      if (settings.meddle) child.stdin.end();
+      else child.kill();
+    }
   });
   app.on('window-all-closed', () => app.quit());
 }

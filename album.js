@@ -1,7 +1,7 @@
 // The photo album: one card per milestone, newest first. Each card remembers what Clawd
 // was wearing that day. Two more pages hold its diary and the family tree.
 const COLORS = { classic: '#d97757', mint: '#5fbf9a', sky: '#5aa7e0', grape: '#9b6fd6', gold: '#e0b030' };
-const STAMPS = { first: '🌱', unlock: '🎁', streak: '🔥', bond: '♥', badge: '★', trick: '✦', food: '🍪', grow: '🌿', name: '✎', visit: '👋', bday: '🎂', gift: '💝', secret: '🤫', hurt: '🩹', scarf: '🧶', omen: '🔮', egg: '🥚', hatch: '🐣' };
+const STAMPS = { first: '🌱', unlock: '🎁', streak: '🔥', bond: '♥', badge: '★', trick: '✦', food: '🍪', grow: '🌿', name: '✎', visit: '👋', bday: '🎂', gift: '💝', secret: '🤫', hurt: '🩹', scarf: '🧶', omen: '🔮', egg: '🥚', hatch: '🐣', week: '📅' };
 // what a gift looks like, drawn to the left of the portrait: [x, y, width, height, colour]
 const PICS = {
   us: [[-8, -3, 4, 4, '#f2c9a0'], [-8, 1, 4, 6, '#4a60bd'], [-8, 7, 1, 4, '#33363d'], [-5, 7, 1, 4, '#33363d'], [-3, -4, 1, 1, '#ff5a7a'], [-1, -4, 1, 1, '#ff5a7a'], [-3, -3, 3, 1, '#ff5a7a'], [-2, -2, 1, 1, '#ff5a7a']],

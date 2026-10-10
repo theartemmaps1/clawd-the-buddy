@@ -57,7 +57,7 @@ const CFG = {
   eggAt: 1500, // finished tasks in one lifetime before an egg turns up (0 = never)
 };
 
-let persona = 'cheerful'; // cheerful | sarcastic | shy | dramatic
+let persona = 'cheerful'; // cheerful | sarcastic | shy | dramatic | wise | nerdy | sleepy | anxious
 let focusUntil = 0; // focus timer: when it ends (0 = not running)
 let breakUntil = 0;
 let breakNagged = false;
@@ -70,10 +70,14 @@ let foodDragAt = 0; // last time something was being dragged over the window
 let quiet = false; // meeting mode: tiny and silent
 let quietManual = false;
 let autoQuiet = true;
-let presence = { full: false, mic: false, app: '', seq: 0 }; // what the main process noticed about the desktop
+let meddleOn = false; // "Let him mess with my desktop"
+let presence = { full: false, mic: false, app: '', game: '', seq: 0 }; // what the main process noticed about the desktop
 let typeAlong = true;
 let remindersOn = true;
 let noticeOn = true;
+let musicOn = false;
+let tune = null; // { title, artist, from } while something is playing
+let site = ''; // the kind of site in the browser in front
 let moment = ''; // a prop held up for a few seconds: flag, plane, popper, tea, water
 let momentTimer;
 let waiting = ''; // a long command is running: knit | tap
@@ -98,6 +102,26 @@ let guest = null; // { f, step, timer } while a friend's Clawd is visiting
 let editKind = 'note'; // what the text box is for: note | name | teach | invite
 let hushUntil = 0; // a big announcement is up: no idle thoughts or mood remarks over it
 let fleeing = false; // backing away from a cursor that hurt it
+let cornered = ''; // hurt, and sitting in a corner of the screen: 'l' or 'r'
+let cornering = false; // on his way to one
+let nextCorner = 0;
+let corneredAt = 0;
+let inching = false; // creeping out of the corner towards a cursor that is keeping still
+let inched = 0;
+let nextInch = 0;
+let comforted = false;
+let holdingPtr = false; // he has your pointer tucked away and wants a click for it
+let blocking = 0; // sitting on what you are reading: since when (0 = not)
+let roaming = false; // nobody about: he has the run of the screen
+let roamTimer;
+let roamUntil = 0;
+let roamedAt = 0;
+let pestered = 0; // how much of a pest he has been since he last calmed down
+let palOn = false; // "A pet of his own"
+let palMood = 'calm'; // how Pip looks: his own mood, a few seconds late
+let palNext = 'calm';
+let palTimer;
+let nextPalCare = Date.now() + 90000;
 let lastEnough = 0;
 let invite = null; // { kind, until } while it is asking you to play
 let asking = null; // the question it is waiting on an answer to
@@ -112,12 +136,28 @@ let longCared = false;
 let defiedBed = 0;
 
 // Feelings build up from what happens to it and fade over time; the strongest one is its mood.
-const feel = { joy: 0.2, energy: 1, irritation: 0, lonely: 0, worry: 0, hunger: 0.3, fear: 0, shame: 0, excite: 0, pride: 0, love: 0, envy: 0, boredom: 0, hurt: 0 };
+const feel = {
+  joy: 0.2, energy: 1, irritation: 0, lonely: 0, worry: 0, hunger: 0.3, fear: 0, shame: 0, excite: 0, pride: 0, love: 0, envy: 0, boredom: 0, hurt: 0,
+  curio: 0, thanks: 0, relief: 0, nostalgia: 0, mischief: 0, focus: 0, smug: 0, homesick: 0,
+};
 // content | joyful | grumpy | worried | tired | hungry | lonely | glum | scared | embarrassed | excited | proud | loving | jealous | bored | hurt
+// | curious | grateful | relieved | nostalgic | mischievous | focused | smug | homesick
 let mood = 'content';
 // the hook reactions and these mouse reactions have their own faces; mood stays out of the way
 const MOODLESS_STATES = ['happy', 'sad', 'alert'];
-const MOODLESS_FX = ['pet', 'spin', 'sleep', 'dizzy', 'hop', 'fly', 'fall', 'eat', 'want', 'yawn', 'stretch', 'hobby', 'jump', 'sit', 'twirl', 'dance', 'shake', 'surprise', 'quest', 'yuck', 'hide', 'hug', 'knock', 'eyeroll'];
+const MOODLESS_FX = ['pet', 'spin', 'sleep', 'dizzy', 'hop', 'fly', 'fall', 'eat', 'want', 'yawn', 'stretch', 'hobby', 'jump', 'sit', 'twirl', 'dance', 'shake', 'surprise', 'quest', 'yuck', 'hide', 'hug', 'knock', 'eyeroll', 'tease', 'fidget', 'nod', 'ponder'];
+// temperament: what each personality feels more keenly, or less (a multiplier on whatever stirs the feeling up)
+const TEMPER = {
+  sarcastic: { smug: 1.4, irritation: 1.2, thanks: 0.7 },
+  shy: { shame: 1.5, fear: 1.2, thanks: 1.3, smug: 0.5 },
+  dramatic: { excite: 1.3, pride: 1.3, fear: 1.3, shame: 1.3, relief: 1.3 },
+  wise: { irritation: 0.6, fear: 0.6, worry: 0.7, nostalgia: 1.4, mischief: 0.5 },
+  nerdy: { curio: 1.6, smug: 1.2, focus: 1.3 },
+  sleepy: { excite: 0.7, mischief: 0.6, boredom: 0.7 },
+  anxious: { worry: 1.5, fear: 1.4, relief: 1.4, homesick: 1.4, smug: 0.6 },
+};
+// a baby has no personality yet
+const trait = (p) => persona === p && ageIndex() > 0;
 
 const clip = (s, n = 60) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s || '');
 const base = (p) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : '');
@@ -151,7 +191,10 @@ function render() {
   const sleepy = isNight() && (state === 'idle' || state === 'thinking');
   const cry = (feel.joy < -0.6 && (state === 'sad' || (showMood && mood === 'glum'))) || (showMood && mood === 'hurt');
   const sulking = showMood && mood === 'grumpy' && (sulk === 'l' || sulk === 'r') && !fx;
-  document.body.className = state + (fx ? ' fx-' + fx : '') + (showMood ? ' mood-' + mood : '') + (sleepy ? ' night' : '') + (quiet ? ' quiet' : '') + (cry ? ' cry' : '') + (sulking ? ' sulk' : '');
+  const huddled = showMood && mood === 'hurt' && cornered && !fx && state === 'idle';
+  // a pet brings its own eyes, but the smile and blush he already had stay on
+  const kept = fx === 'pet' && mood !== 'content' && !MOODLESS_STATES.includes(state);
+  document.body.className = state + (fx ? ' fx-' + fx : '') + (showMood ? ' mood-' + mood : '') + (kept ? ' kept-' + mood : '') + (sleepy ? ' night' : '') + (quiet ? ' quiet' : '') + (cry ? ' cry' : '') + (sulking ? ' sulk' : '') + (huddled ? ' cornered' : '') + (holdingPtr ? ' holding' : '') + (palOn ? ' pal' : '');
   const d = document.body.dataset;
   d.prop = state === 'working' ? prop : '';
   d.focus = focusUntil ? '1' : '';
@@ -161,8 +204,18 @@ function render() {
   d.hobby = fx === 'hobby' ? hobby : '';
   d.dream = fx === 'sleep' ? dream : '';
   d.sulk = sulking ? sulk : '';
+  d.corner = huddled ? cornered : '';
+  d.pal = palOn ? palMood : '';
   d.five = state === 'happy' && Date.now() < fiveUntil ? '1' : '';
   d.visiting = guest ? '1' : '';
+  d.tune = tune && state === 'idle' && !fx && !quiet ? '1' : '';
+  // how his personality carries itself: `persona` the whole time, `manner` only while nothing else has his face
+  const grown = ageIndex() > 0;
+  const calm = grown && !fx && !showMood && !sleepy && !quiet && (state === 'idle' || state === 'thinking');
+  d.persona = grown ? persona : '';
+  d.manner = calm ? persona : '';
+  // shy under your cursor, or anxious while Claude thinks: the fingers come together
+  d.fidget = calm && !moment && ((persona === 'shy' && hovering && state === 'idle') || (persona === 'anxious' && state === 'thinking')) ? '1' : '';
   renderSign();
 }
 
@@ -521,9 +574,21 @@ window.buddy.onContext(({ session, tokens }) => {
 const dateKey = (d) => d.toLocaleDateString('sv'); // local YYYY-MM-DD
 const todayKey = () => dateKey(new Date());
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
-const newDay = () => ({ date: todayKey(), tasks: 0, fails: 0, tools: 0, longestMs: 0, longestTools: 0, snacks: 0, pokes: 0, greeted: false, did: {} });
+// the Monday this week began on
+const weekKey = () => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dateKey(d); };
+const newWeek = () => ({ from: weekKey(), songs: 0, tunes: {}, video: 0, games: 0, ai: 0, aiOn: '', envy: {} });
+const newDay = () => ({ date: todayKey(), tasks: 0, fails: 0, tools: 0, longestMs: 0, longestTools: 0, snacks: 0, pokes: 0, songs: 0, greeted: false, did: {} });
 let day = { ...newDay(), ...load('buddy-day', {}) };
-const life = { tasks: 0, hat: '', color: 'classic', bond: 0, lastSeen: '', note: '', badges: {}, stats: {}, exts: [], album: [], tricks: {}, room: {}, fav: '', favFound: false, recap: '', name: '', words: [], friends: [], born: '', partied: '', lastGift: '', answers: {}, asked: '', secrets: [], secretOn: '', hurtOn: '', wary: false, scarf: 0, diary: [], omens: {}, projects: {}, extras: {}, gen: 1, genFrom: 0, elders: [], egg: null, ...load('buddy-life', {}) };
+const life = { tasks: 0, hat: '', color: 'classic', bond: 0, lastSeen: '', note: '', badges: {}, stats: {}, exts: [], album: [], tricks: {}, room: {}, fav: '', favFound: false, recap: '', name: '', words: [], friends: [], born: '', partied: '', lastGift: '', answers: {}, asked: '', secrets: [], secretOn: '', hurtOn: '', wary: false, scarf: 0, diary: [], omens: {}, projects: {}, extras: {}, gen: 1, genFrom: 0, elders: [], egg: null, tunes: {}, tuneFav: '', wish: '', wishOn: '', sorryOn: '', games: {}, gameFav: '', week: null, ...load('buddy-life', {}) };
+if (!life.tunes || typeof life.tunes !== 'object') life.tunes = {};
+if (typeof life.tuneFav !== 'string') life.tuneFav = '';
+if (typeof life.wish !== 'string') life.wish = '';
+if (!life.games || typeof life.games !== 'object') life.games = {};
+if (typeof life.gameFav !== 'string') life.gameFav = '';
+if (!life.week || typeof life.week !== 'object' || !/^\d{4}-\d\d-\d\d$/.test(life.week.from)) life.week = newWeek();
+life.week = { ...newWeek(), ...life.week };
+if (!life.week.tunes || typeof life.week.tunes !== 'object') life.week.tunes = {};
+if (!life.week.envy || typeof life.week.envy !== 'object') life.week.envy = {};
 if (!Number.isFinite(life.tasks) || life.tasks < 0) life.tasks = 0;
 if (!Number.isFinite(life.bond) || life.bond < 0) life.bond = 0;
 if (!life.badges || typeof life.badges !== 'object') life.badges = {};
@@ -821,6 +886,7 @@ function hadEnough() {
   if (bedOn && !walking && !away && !chasing && !dragging) {
     bedTried = true;
     goingToBed = walking = true;
+    cornered = '';
     setFx('walk', 0);
     say('I\'m going to bed. Leave me alone.', 3500);
     window.buddy.goBed();
@@ -829,9 +895,38 @@ function hadEnough() {
   }
 }
 
+// Hurt, he takes himself off to a corner of the screen and sits there until he is better.
+// The main process picks the one further from the cursor unless he is told a side.
+function goCorner(side) {
+  walking = cornering = true;
+  away = returning = fleeing = inching = false;
+  cornered = '';
+  inched = 0;
+  comforted = false;
+  setFx('walk', 0);
+  window.buddy.corner(side || 'far');
+}
+
+// better again: back to where he was before
+function leaveCorner() {
+  const onWay = cornering; // still walking there: he turns round
+  cornered = '';
+  cornering = false;
+  if ((walking && !onWay) || dragging || down || fx === 'sleep') return;
+  walking = returning = true;
+  setFx('walk', 0);
+  window.buddy.corner('');
+}
+
 // edge away from the cursor; false if it has to stand its ground
 function backOff() {
   if (!wander || away || walking || chasing || hiding || guest || dragging || down) return false;
+  if (cornered) {
+    // crept out a little way: straight back in. Otherwise there is nowhere left to back
+    // into, and he scurries past to the other corner
+    goCorner(inched ? cornered : cornered === 'l' ? 'r' : 'l');
+    return true;
+  }
   away = walking = fleeing = true;
   awaySince = Date.now();
   const far = 110;
@@ -971,7 +1066,85 @@ const PERSONA = {
     wake: ['WHO DISTURBS MY SLUMBER?!', 'I was dreaming of GLORY!'],
     muse: ['To code, or not to code…', 'O cursor, cursor, wherefore art thou?', 'What a time to be pixels.', 'I feel… EVERYTHING.', 'Destiny is but one commit away.'],
   },
+  wise: {
+    pokeIdle: ['Yes, young one?', 'A poke is a question without words.', 'I am here. I am always here.', 'Patience. I felt it the first time.', 'Mm. Speak.', 'Even the cursor must rest.'],
+    pokeWorking: ['The work continues. So must we.', 'One thing at a time.', 'Watch. Learn. Wait.'],
+    greet: ['Ah. You have returned.', 'A new session. Begin simply.', 'Welcome back. The code has waited.'],
+    done: ['It is done. Rest a moment.', 'Finished. And we are a little wiser.', 'Done. Small steps, long road.', 'So it ends, and so the next begins.'],
+    fail: ['A failing test is only a question.', 'The bug is the teacher.', 'It broke. Good. Now we know where.', 'Fall seven times. Commit eight.'],
+    pet: ['Kindness is never wasted.', 'Mm. Thank you, friend.', 'Peace.', 'This, too, is the work.'],
+    drag: ['All things move in time.', 'I go where the hand goes.', 'A journey. Very well.'],
+    wake: ['I was not sleeping. I was reflecting.', 'Mm. The dream can wait.', 'Awake. As ever.'],
+    muse: ['Commit often. Regret rarely.', 'The best code is the code you delete.', 'A quiet build is a happy build.', 'Read the error twice. Then once more.', 'Slow is smooth. Smooth is fast.', 'Every TODO was a promise once.', 'Name things well and half the work is done.'],
+    manner: ['Hmmm.', '*strokes chin*', '*closes his eyes and thinks*', 'Let me turn that over.'],
+  },
+  nerdy: {
+    pokeIdle: ['Technically, that was a click event.', 'Poke registered. Latency: negligible.', 'Fun fact: I am 200 units wide.', 'Did you know crabs have ten legs? I have four. I checked.', 'Ah! A data point.', 'Input received!'],
+    pokeWorking: ['Shh, I\'m reading the diff.', 'One moment, I\'m counting tool calls.', 'Fascinating. Hold on.'],
+    greet: ['Session initialised!', 'Oh good, new data.', 'Hello! I have prepared statistics.'],
+    done: ['Done! Exit code zero, I assume.', 'Complete. I logged it.', 'Finished! That goes in the records.', 'Task closed. Beautiful.'],
+    fail: ['Interesting! A non-zero exit.', 'An error. Let me see the stack trace. Ooh.', 'Technically that is a result too.', 'Hypothesis rejected.'],
+    pet: ['Oh! Tactile input. Pleasant.', 'Serotonin, probably.', 'Ah. Optimal.'],
+    drag: ['Recalculating position!', 'My coordinates! They\'re changing!', 'Whee. Velocity noted.'],
+    wake: ['Resuming from standby.', 'I was defragmenting.', 'Boot sequence complete!'],
+    muse: ['Did you know the first bug was an actual moth?', 'Off-by-one errors are the second hardest problem. Or the third.', 'I should really index these folders.', 'There are 10 kinds of people…', 'I wonder what my frame rate is.', 'Zero-indexed, I am the 0th Clawd.'],
+  },
+  sleepy: {
+    pokeIdle: ['Mmh? …oh. Hi.', '*yawn* …you poked?', 'Five more minutes…', 'I\'m up. I\'m… up.', 'Zzz— what?', 'So… cosy…'],
+    pokeWorking: ['Working… mostly…', '*yawn* It\'s going. I think.', 'Mm-hm. Busy. Zzz.'],
+    greet: ['Oh… morning. Is it morning?', '*yawn* Hi. Let\'s… do things.', 'A session… okay… I\'m in.'],
+    done: ['Done? Oh… good… nap time.', 'Finished. *yawn* Wake me for the next one.', 'All done… zzz…', 'There. Now can I lie down?'],
+    fail: ['It broke… *yawn* …we\'ll fix it after a nap.', 'Mmh. That didn\'t work.', 'Oh no… anyway…'],
+    pet: ['Mmmm… don\'t stop… zzz…', 'So… nice…', '*sleepy purr*'],
+    drag: ['Mmh… carry me…', 'Are we there yet… zzz…', 'Gently… I\'m napping…'],
+    wake: ['…five more hours…', 'I was having the nicest dream…', 'Mmh. Is it tomorrow?'],
+    muse: ['*yawn*', 'I could nap right here.', 'The taskbar looks so soft…', 'Just resting my eyes…', 'Is it bedtime yet?', 'So… warm… by the fan…'],
+    manner: ['…zzz— I\'m awake!', 'Huh? I wasn\'t sleeping.', '*jolts* …what did I miss?', '…mmh. Still here.'],
+  },
+  anxious: {
+    pokeIdle: ['Ah! Oh. It\'s you.', 'W-what? Did something break?', 'Is everything okay? Everything\'s okay?', 'Don\'t DO that! …hi.', 'Did you save? You saved, right?', 'Oh no. Oh. Hello.'],
+    pokeWorking: ['Careful! It\'s mid-edit!', 'Not now, not now, it\'s running!', 'Is that… supposed to do that?'],
+    greet: ['Oh! You\'re here. Good. Okay. Good.', 'A new session. Nothing will go wrong. Right?', 'Hi! Is the branch clean? Just asking.'],
+    done: ['It\'s done? It worked? Really?', 'Done! …should we run it again, to be sure?', 'Oh thank goodness.', 'Finished. I can breathe again.'],
+    fail: ['I knew it. I KNEW it.', 'Oh no oh no oh no.', 'It\'s fine. It\'s fine! Is it fine?', 'Was that the important one?'],
+    pet: ['Oh… okay. That helps. That really helps.', '*slow exhale*', 'Stay a minute?'],
+    drag: ['Not so high! Not so high!', 'Careful careful careful!', 'You\'ve got me? You\'ve got me.'],
+    wake: ['What happened?! What did I miss?!', 'I only shut my eyes for a second!', 'Is it broken? Did it break?'],
+    muse: ['Did we commit that? I think we committed that.', 'What if the disk is full?', 'I heard a fan. Was that a fan?', 'Is the backup recent? How recent?', 'It\'s quiet. I don\'t trust quiet.', 'A force push?! …no. Nobody said that. Okay.'],
+    manner: ['*wrings hands*', 'It\'s fine. It\'s fine. Is it fine?', '*checks over his shoulder*', 'Did you hear that?'],
+  },
 };
+// the other four fidget too
+PERSONA.shy.manner = ['*taps fingers together*', '…', '*studies his feet*', 'Um.'];
+PERSONA.sarcastic.manner = ['*slow clap*', 'Riveting.', 'No, no, take your time.', '*checks an imaginary watch*'];
+PERSONA.dramatic.manner = ['*gasps* …no. False alarm.', 'Did the lights just flicker? For ME?', '*strikes a pose*'];
+
+// A habit of his own every couple of minutes, when nothing else is going on.
+let nextManner = Date.now() + 60000;
+let nextRub = 0;
+// he keeps records: a figure from his own tallies
+function nerdFact() {
+  const up = Math.round(performance.now() / 60000);
+  return pick([
+    `Tasks finished to date: ${life.tasks}. I keep a tally.`,
+    `I have been poked ${life.stats.pokes || 0} times. Approximately. Exactly.`,
+    `Uptime: ${plural(up, 'minute')}. No crashes. So far.`,
+    `File types I have seen: ${life.exts.length}. I am collecting them.`,
+    `${plural(day.tools, 'tool call')} today. I counted every one.`,
+    `Photos in the album: ${life.album.length}. Indexed by date.`,
+  ]);
+}
+function manner() {
+  const lines = (PERSONA[persona] || {}).manner;
+  if (persona === 'shy' || persona === 'anxious') setFx('fidget', 2600);
+  else if (persona === 'sleepy') setFx('nod', 2400);
+  else if (persona === 'wise') setFx('ponder', 3200);
+  else if (persona === 'nerdy') setFx('peer', 2000);
+  else if (persona === 'sarcastic') setFx('eyeroll', 900);
+  else if (persona === 'dramatic') setFx('surprise', 900);
+  else return;
+  say(persona === 'nerdy' ? nerdFact() : pick(lines), 3200);
+}
 // the teenage phase: it answers back, until it grows out of it
 const TEEN = {
   pokeIdle: ['Ugh. What.', 'Do you MIND?', 'I\'m busy. Doing nothing. It\'s important.', 'Whatever.', 'Stop, you\'re so embarrassing.', 'Can you not.'],
@@ -1021,7 +1194,7 @@ function detailLine(e, s) {
     life.exts.push(ext);
     if (life.exts.length > 300) life.exts.shift();
     saveLife();
-    if (life.exts.length > 3) return `Ooh, my first .${ext} file ever!`;
+    if (life.exts.length > 3) { bump('curio', 0.7); return `Ooh, my first .${ext} file ever!`; }
   }
   if (e.tool === 'Read') return null;
   const n = (fileEdits.get(file) || 0) + 1;
@@ -1046,6 +1219,7 @@ window.buddy.onPomodoro((on) => {
     say(`Focus time! ${CFG.focusMinutes} minutes. I'll keep quiet.`, 4000);
   } else if (focusUntil) {
     focusUntil = 0;
+    feel.focus = 0;
     render();
     say('Focus timer stopped.', 2500);
   }
@@ -1053,6 +1227,7 @@ window.buddy.onPomodoro((on) => {
 
 function finishFocus() {
   focusUntil = 0;
+  feel.focus = 0;
   breakUntil = Date.now() + CFG.focusBreakMinutes * 60000;
   breakNagged = false;
   window.buddy.pomodoroEnded();
@@ -1303,6 +1478,7 @@ function party() {
   hushUntil = lastActivity + 9000;
   bump('joy', years ? 0.7 : 0.3);
   bump('excite', years ? 0.8 : 0.3);
+  bump('nostalgia', years ? 0.9 : 0.5); // once the party is over
   sfx('level');
   if (years) {
     confetti(40);
@@ -1335,6 +1511,28 @@ function offerGift() {
   showMoment('gift', 25000);
   sfx('cheer');
   say(pick(['I made you something! Click me!', 'Psst. I have a present for you. Click me!', 'For you! Open it! (click me)']), 9000);
+}
+
+// After being a pest (shoving windows, making off with the pointer) and calming down, he
+// makes something to say sorry with. Once a day at most.
+const SORRY_GIFTS = [
+  { pic: 'flower', title: 'A sorry flower', text: 'For the window. He put it back first, then grew this.', line: 'A flower. For the window thing. Sorry.' },
+  { pic: 'poem', title: 'An apology poem', text: 'Your windows are yours, and so is your cursor. I\'m sorry I took them. I won\'t. (I might.)', line: 'A poem. It doesn\'t rhyme. I was too sorry to rhyme.' },
+  { pic: 'us', title: 'A drawing of us, friends again', text: 'You, me, and one window, exactly where you left it.', line: 'I drew us. Friends again? I put everything back.' },
+  { pic: 'gem', title: 'A peace pixel', text: 'His shiniest one. Handed over without being asked.', line: 'My shiniest pixel. You can have it. I was a pest.' },
+  { pic: 'medal', title: 'A medal for patience', text: 'Awarded to the human, for putting up with him.', line: 'A medal! For putting up with me. You earned it today.' },
+];
+
+function sorry() {
+  if (gift || guest || quiet || dragging || fx === 'sleep' || state !== 'idle' || life.sorryOn === todayKey() || ['grumpy', 'jealous', 'mischievous', 'hurt'].includes(mood)) return;
+  gift = { g: pick(SORRY_GIFTS), until: Date.now() + 25000 };
+  life.sorryOn = todayKey();
+  saveLife();
+  did('sorry');
+  lastActivity = Date.now();
+  hushUntil = lastActivity + 9000;
+  showMoment('gift', 25000);
+  say(pick(['I was a pest. I made you something. (click me)', 'About earlier… this is for you. (click me)', 'Sorry about your window. Here. (click me)']), 9000);
 }
 
 // `opened`: clicked in time; otherwise it puts the present away in the album for later
@@ -1499,13 +1697,13 @@ function tellSecret(s) {
 
 // ---- friends: other people's Clawds, added by a short code, who drop in to visit ----
 
-const PERSONA_IDS = ['cheerful', 'sarcastic', 'shy', 'dramatic'];
+const PERSONA_IDS = ['cheerful', 'sarcastic', 'shy', 'dramatic', 'wise', 'nerdy', 'sleepy', 'anxious']; // the order is part of the code: only ever add to the end
 const codeName = (name) => (name || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16) || 'Clawd';
 // BUD-<colour><hat><age><personality>-<name>: everything a friend's copy needs to draw this one
 const myCode = () => `BUD-${Math.max(0, COLORS.findIndex((c) => c.id === life.color))}${HATS.findIndex((h) => h.id === life.hat) + 1}${ageIndex()}${Math.max(0, PERSONA_IDS.indexOf(persona))}-${codeName(life.name)}`;
 
 function parseCode(text) {
-  const m = /^BUD-([0-4])([0-6])([0-3])([0-3])-(.{1,16})$/.exec(text.trim());
+  const m = /^BUD-([0-4])([0-6])([0-3])([0-7])-(.{1,16})$/.exec(text.trim());
   if (!m) return null;
   return { n: codeName(m[5]), c: COLORS[Number(m[1])].id, h: m[2] === '0' ? '' : HATS[Number(m[2]) - 1].id, a: Number(m[3]), p: PERSONA_IDS[Number(m[4])] };
 }
@@ -1547,6 +1745,10 @@ const GUEST_LINES = {
   sarcastic: ['So this is where you live. Cosy.', 'Your human types loudly.', 'I\'ve seen bigger monitors.', 'Don\'t get up. Oh, you didn\'t.', 'Fine. It\'s nice here. Happy?'],
   shy: ['H-hi… thanks for having me.', 'Is it okay if I stand here?', 'Your human seems nice…', 'I brought… um. Nothing. Sorry.', 'This is nice…'],
   dramatic: ['I have JOURNEYED across the network!', 'What a MAGNIFICENT desktop!', 'Friend! At LAST we meet again!', 'Such pixels! Such splendour!', 'I shall tell TALES of this visit!'],
+  wise: ['A good home. Keep it tidy.', 'Your human works hard. Be kind to them.', 'I have seen many desktops. This is one of them.', 'Sit with me a while.', 'The journey here was the lesson.'],
+  nerdy: ['What resolution is this? Ooh.', 'How many tasks are you on? I\'m keeping a chart.', 'Fascinating taskbar arrangement.', 'I measured the trip. 0 ms. Remarkable.', 'Do you index your album too?'],
+  sleepy: ['*yawn* Nice place… got a bed?', 'I came all this way… zzz…', 'Mind if I sit down?', 'Is it nap time here too?', 'So cosy…'],
+  anxious: ['Is it safe here? It looks safe.', 'I left my human alone. Is that okay?', 'Your fans are loud. Is that normal?', 'I can\'t stay long. What if something breaks?', 'Nice desktop. Is it backed up?'],
 };
 // the ones who stood here before it come back to check on things
 const ELDER_LINES = ['Look how you\'ve grown!', 'Is that my scarf? It\'s longer.', 'Are they feeding you properly?', 'I used to stand right there.', 'Keep an eye on the human for me.', 'Still the same taskbar, I see.', 'You have my eyes. Both of them.'];
@@ -1574,6 +1776,7 @@ function startVisit(f) {
   bump('lonely', -0.8);
   bump('joy', 0.25);
   bump('excite', 0.4);
+  if (f.gen) bump('nostalgia', 0.7);
   sfx('cheer');
   setFx('wave', 1500);
   say(pick([`${f.n}! You came!`, `${f.n}! Come in, come in!`, `Look who it is! ${f.n}!`]), 3500);
@@ -1624,6 +1827,12 @@ visitorEl.addEventListener('click', () => {
 window.buddy.onDo((msg) => {
   const what = msg && msg.what;
   touch();
+  if (what === 'album') {
+    // leafing through the album sets him remembering
+    bump('nostalgia', 0.9);
+    if (fx !== 'sleep') say(pick(['Ooh, the album! Look how small I was.', 'Are we looking at old photos? I love old photos.', 'That takes me back…']), 4000);
+    return;
+  }
   if (fx === 'sleep') setFx('', 0);
   if (what === 'copied') {
     say('My code is on your clipboard. Send it to a friend!', 4500, true);
@@ -1851,6 +2060,7 @@ panel.addEventListener('click', (e) => {
     rps.me++;
     bump('joy', 0.1);
     bump('pride', 0.25);
+    bump('smug', 0.4);
     setFx('hop', 500);
     sfx('cheer');
     say(shown + pick(['I win! Hehe.', 'Gotcha!', 'Too easy.']) + ` (${rps.me}–${rps.you})`, 4000);
@@ -1905,12 +2115,284 @@ function found(byYou) {
       : pick([`You found me! ${span(took)}.`, `Aw, found. That took you ${span(took)}.`, `Good spot though, right? ${span(took)}.`]), 4000);
   } else {
     bump('pride', 0.3);
+    bump('smug', 0.6);
     sfx('done');
     say(pick(['I win! I was over here the whole time!', 'You didn\'t find me! Best hider ever.', 'Okay, I\'m coming out. I win!']), 4000);
   }
 }
 
 window.buddy.onPlay((game) => (game === 'rps' ? startRps() : startHide()));
+
+// ---- mischief: bored with you right there, he plays a trick ----
+
+let nextPrank = 0;
+
+function prank() {
+  lastActivity = Date.now();
+  bump('mischief', -0.4);
+  bump('boredom', -0.4);
+  did('prank');
+  if (meddleOn && Math.random() < 0.5) return window.buddy.meddle(pick(['shake', 'tug', 'hold', 'prints']));
+  const roll = Math.random();
+  if (roll < 0.3 && !away && !chasing && !isNight()) {
+    // slips off to hide without being asked
+    away = walking = returning = goingToBed = false;
+    setFx('look', 1400);
+    say(pick(['Hehehe… don\'t look round.', 'Bet you won\'t even notice I\'m gone.', 'Now you see me…']), 2200);
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => { if (!dragging && !down && !quiet) window.buddy.hide(true); }, 1500);
+  } else if (roll < 0.65) {
+    setFx('tease', 1800);
+    sfx('hic');
+    say(pick(['Nyeh!', '*blows a raspberry*', 'Bleh!', 'Made you look.']), 2200);
+  } else {
+    // knocks on the glass, then knows nothing about it
+    setFx('knock', 1500);
+    sfx('poke');
+    setTimeout(() => sfx('poke'), 300);
+    say('*tap tap tap*', 1400);
+    setTimeout(() => {
+      if ((fx && fx !== 'knock') || state !== 'idle' || quiet) return;
+      setFx('look', 2400);
+      say(pick(['…wasn\'t me.', '*whistles innocently*', 'Who\'s there? Not me.', 'Did you hear something? I didn\'t.']), 3000);
+    }, 1600);
+  }
+}
+
+// ---- meddling: allowed to touch the desktop, he takes his moods out on it ----
+
+// With "Let him mess with my desktop" on he can ask the main process for a shake or a shove
+// of a window (the one he stands on, or the one in front), a tug on the pointer, or muddy
+// footprints. He only reacts once he hears whether it came off. A shoved window stays shoved
+// until he has calmed down.
+let nextMeddle = 0;
+let shoved = false;
+let stalking = false; // on his way over to whatever he is after
+let retried = false;
+
+const MEDDLED = {
+  shake: {
+    fx: 'knock',
+    grumpy: ['*STOMP*', 'I said HMPH.', '*rattles your window*'],
+    jealous: ['Hello? HELLO?', '*rattles your window*', 'Is this thing more interesting than me?'],
+    other: ['*stomp stomp*', 'Earthquake!', 'Whoops. Was that me?'],
+  },
+  shove: {
+    fx: 'knock',
+    grumpy: ['*shoves your window*', 'It was in my way.', 'Move.'],
+    jealous: ['Budge up, window.', 'That window has had enough of you.', '*shoves your window* Oops.'],
+    other: ['*nudge*', 'It looked better over there.'],
+  },
+  tug: {
+    fx: 'tease',
+    grumpy: ['Give me that.', '*yanks the pointer*'],
+    jealous: ['Over HERE.', 'Look at ME.', '*grabs the pointer* Mine.'],
+    other: ['Got it! …lost it.', '*tug* Hehe.', 'Come here, you.'],
+  },
+  tow: {
+    fx: 'sit',
+    grumpy: ['Mine now.', 'I\'m keeping it. You weren\'t using it properly.'],
+    jealous: ['If you like it so much, it can live with ME.', 'It\'s mine now. Come and visit it.'],
+    other: ['*sits on it* Treasure.', 'Finders keepers.', 'I\'m keeping this one by my bed.'],
+  },
+  hold: {
+    fx: 'hug',
+    grumpy: ['Mine. Click me if you want it back.', 'You can have it back when I say. (click me)'],
+    jealous: ['Now you HAVE to look at me. (click me)', 'No pointer for you. (click me)', 'I\'m keeping it. Ask nicely. (click me)'],
+    other: ['What pointer? I don\'t see a pointer. (click me)', 'Behind my back. Guess which hand. (click me)', 'Got it! Click me if you want it back.'],
+  },
+  block: {
+    fx: 'sit',
+    grumpy: ['I\'m sitting here now.', 'Read around me.'],
+    jealous: ['You can read it later. Look at ME.', 'This is my spot. Pet me and I might move.', '*sits on your page*', 'Was that interesting? I\'m interesting.'],
+    other: ['I live here now.', '*sits on your page* Comfy.'],
+  },
+  prints: {
+    fx: 'look',
+    grumpy: ['I walked where I liked.', 'Yes, they\'re mine. So?'],
+    other: ['…those were there already.', '*whistles* What footprints?', 'I went for a walk. A muddy one.'],
+  },
+};
+
+function meddle(what) {
+  lastActivity = Date.now();
+  did('prank');
+  retried = false;
+  window.buddy.meddle(what);
+}
+
+// he is not close enough yet: the main process has set him walking over to it
+window.buddy.onMeddling(() => {
+  away = walking = stalking = true;
+  returning = fleeing = false;
+  awaySince = lastTrip = Date.now();
+  setFx('walk', 0);
+  say(mood === 'grumpy' ? pick(['Right. That does it.', '*stomps over*', 'I\'m coming over there.'])
+    : mood === 'jealous' ? pick(['Let me see what\'s so interesting.', 'Excuse me. Coming through.', 'Oh, I\'ll show that thing.'])
+      : pick(['*tiptoes*', 'Don\'t mind me…', 'Hehe. Hold still.']), 2200);
+});
+
+// off the page he was sitting on, and home
+function unblock() {
+  if (!blocking) return;
+  blocking = 0;
+  walking = returning = away = true;
+  setFx('walk', 0);
+  window.buddy.meddle('unblock');
+}
+
+window.buddy.onMeddled((m) => {
+  if (!m || !meddleOn) return;
+  const now = Date.now();
+  if (m.what === 'towing') {
+    if (!quiet) say(pick(['*heave*… *heave*…', 'This one\'s coming with me.', 'Nnngh. Heavy.']), 2600);
+    return;
+  }
+  if (m.what === 'war') {
+    if (!m.ok || quiet || dragging) return;
+    setFx('tease', 4200);
+    sfx('poke');
+    say(pick(['Tug of war! PULL!', 'Mine! Pull if you want it!', 'Heave! HEAVE!', 'You\'ll have to pull harder than that!']), 3800);
+    return;
+  }
+  if (m.what === 'warover') {
+    // a game is a game: he has had your attention, whoever won
+    lastActivity = lastTouched = now;
+    feel.envy = Math.max(0, feel.envy - 0.5);
+    if (quiet || dragging) return;
+    if (m.won === 'him') {
+      bump('smug', 0.7);
+      bump('joy', 0.2);
+      setFx('jump', 900);
+      say(pick(['I win! I WIN!', 'Ha! Stronger than I look.', 'The pointer is mine. …You can borrow it.', 'Undefeated! (Today.)']), 3500);
+    } else if (m.won === 'you') {
+      bump(mood === 'grumpy' ? 'irritation' : 'joy', 0.15);
+      setFx('dizzy', 1200);
+      say(pick(['Oof! Okay, okay, you win.', 'No fair, you have a whole arm.', 'Best of three?', 'I let you win. Obviously.']), 3500);
+    } else {
+      setFx('', 0);
+      say(pick(['A draw! Rematch later.', 'Phew. Call it even.']), 2500);
+    }
+    return;
+  }
+  if (m.what === 'letgo') {
+    if (!holdingPtr) return;
+    holdingPtr = false;
+    setFx('', 0);
+    if (m.by === 'click') {
+      lastActivity = lastTouched = now;
+      feel.envy = Math.max(0, feel.envy - 0.4);
+      say(pick(['Fine. Take it.', 'Okay, okay! Here.', 'There. Was that so hard? Looking at me?']), 2500);
+    } else say(pick(['…my arms got tired.', 'It was wriggling. Have it back.', 'Oh, all right. Here.']), 2500);
+    return;
+  }
+  const done = MEDDLED[m.what];
+  if (!done) return;
+  if (m.ok && (m.what === 'shove' || m.what === 'tow')) shoved = true;
+  if (m.ok && m.what === 'block') { blocking = now; away = false; }
+  if (m.ok && m.what === 'hold') holdingPtr = true;
+  if (m.ok) pestered++;
+  if (quiet || dragging || fx === 'sleep') { render(); return; }
+  if (!m.ok && m.what !== 'tug' && m.what !== 'hold' && m.what !== 'prints' && !retried) {
+    // no window he can get at: the pointer will do
+    retried = true;
+    return window.buddy.meddle('tug');
+  }
+  if (!m.ok) {
+    // nothing he could get hold of: he makes do with a face
+    setFx('tease', 1800);
+    say(pick(['Nyeh!', 'Bleh!', '*blows a raspberry*']), 2200);
+    return;
+  }
+  // sitting, and hanging on to the pointer, last until something ends them
+  setFx(done.fx, m.what === 'block' || m.what === 'hold' ? 0 : m.what === 'tow' ? 5000 : 1600);
+  sfx('poke');
+  say(pick(done[mood] || done.other), m.what === 'hold' || m.what === 'block' ? 4500 : 2600);
+  // he has it part of the way: now he wants to see if you will fight him for it
+  if (m.what === 'tug' && (mood === 'jealous' || mood === 'mischievous' || Math.random() < 0.4)) {
+    setTimeout(() => { if (meddleOn && !quiet && !dragging && !holdingPtr) window.buddy.meddle('war'); }, 1100);
+  }
+});
+
+// ---- idle takeover: nobody has touched anything for ten minutes, so the screen is his ----
+
+function roamLeg() {
+  if (!roaming || dragging || walking) return;
+  if (Date.now() > roamUntil) return stopRoam(true);
+  lastActivity = Date.now();
+  walking = true;
+  away = false;
+  setFx('walk', 0);
+  window.buddy.roam(true);
+}
+
+function startRoam() {
+  roaming = true;
+  roamUntil = Date.now() + 5 * 60000;
+  setFx('', 0);
+  lastActivity = Date.now();
+  say(pick(['…they\'re gone. The screen is MINE.', 'Nobody about? Time for a walk.', '*looks left* *looks right* …right.']), 3000);
+  clearTimeout(roamTimer);
+  roamTimer = setTimeout(roamLeg, 2500);
+}
+
+// `tired`: he has had his walk; otherwise you came back and caught him at it
+function stopRoam(tired) {
+  if (!roaming) return;
+  roaming = false;
+  roamedAt = Date.now();
+  clearTimeout(roamTimer);
+  walking = returning = away = true;
+  setFx('walk', 0);
+  window.buddy.roam(false);
+  if (tired) return;
+  lastActivity = Date.now();
+  say(pick(['Nothing! I was doing nothing!', 'You\'re back! I was here the whole time.', 'I wasn\'t on your desktop. That was someone else.', '*scrambles home* Hi! Hello! Welcome back!']), 3500);
+}
+
+// ---- Pip, a pet of his own: feels what he feels, a few seconds late ----
+
+const palEl = document.getElementById('pal');
+const PAL_OF = {
+  joyful: 'up', excited: 'up', proud: 'up', loving: 'up', smug: 'up', grateful: 'up', relieved: 'up', mischievous: 'up',
+  hurt: 'down', glum: 'down', lonely: 'down', homesick: 'down', hungry: 'down',
+  grumpy: 'cross', jealous: 'cross',
+  scared: 'jumpy', worried: 'jumpy', embarrassed: 'jumpy',
+  tired: 'asleep',
+};
+
+function palHop() {
+  palEl.classList.add('hop');
+  setTimeout(() => palEl.classList.remove('hop'), 900);
+}
+
+// once a second: Pip catches up with whatever Clawd has been feeling for four seconds
+function palFollow() {
+  if (!palOn) return;
+  const want = fx === 'sleep' ? 'asleep' : PAL_OF[mood] || 'calm';
+  if (want === palNext) return;
+  palNext = want;
+  clearTimeout(palTimer);
+  palTimer = setTimeout(() => {
+    const was = palMood;
+    palMood = palNext;
+    render();
+    if (palMood === 'down' && was !== 'down' && !fx && !quiet && Date.now() > hushUntil) {
+      // he is low, and now so is Pip, who comes and leans on him
+      bump('lonely', -0.2);
+      say('*Pip leans against him*', 2500);
+    }
+  }, 4000);
+}
+
+palEl.addEventListener('click', () => {
+  if (!palOn) return;
+  touch();
+  palHop();
+  bump('joy', 0.05);
+  sfx('hic');
+  say(pick(['Pip says: meep!', 'Pip says: prrp?', '*Pip wiggles*', 'He likes you. He told me.']), 2000);
+});
 
 // ---- tastes: every kind of file is a kind of food, and it has opinions ----
 
@@ -1971,14 +2453,15 @@ function applyQuiet() {
   const h = hour();
   const hours = CFG.quietStart !== CFG.quietEnd
     && (CFG.quietStart < CFG.quietEnd ? h >= CFG.quietStart && h < CFG.quietEnd : h >= CFG.quietStart || h < CFG.quietEnd);
-  const next = quietManual || hours || (autoQuiet && (presence.full || presence.mic));
+  const onCall = presence.mic || site === 'call';
+  const next = quietManual || hours || (autoQuiet && (presence.full || onCall));
   if (next === quiet) return;
   const now = Date.now();
   const speak = now - lastQuietWord > 120000 && fx !== 'sleep';
   if (speak) lastQuietWord = now;
   if (next) {
     endRps();
-    if (speak) say(autoQuiet && presence.mic ? '(whispers) A call! I\'ll be quiet.' : 'Shh. Quiet mode.', 2200, true);
+    if (speak) say(autoQuiet && onCall ? '(whispers) A call! I\'ll be quiet.' : 'Shh. Quiet mode.', 2200, true);
     quiet = true;
   } else {
     quiet = false;
@@ -2021,7 +2504,7 @@ function noticeApp(kind) {
     say(pick(['So many windows! Lost something?', 'You\'re hopping about a lot. Everything okay?', 'Window, window, window… I\'m getting dizzy.']), 3500);
     return;
   }
-  const lines = APP_LINES[kind];
+  const lines = kind === 'game' && presence.game ? gameLines(presence.game) : APP_LINES[kind];
   if (!lines || now - lastAppLine < 4 * 60000 || now - (appSaid[kind] || 0) < 30 * 60000) return;
   lastAppLine = appSaid[kind] = now;
   lastActivity = now; // worth waking up for
@@ -2032,22 +2515,61 @@ function noticeApp(kind) {
   say((asleep ? 'Mm? ' : '') + pick(lines), 3500);
 }
 
+// A game is the one program he knows by name. He keeps count of the minutes, asks how it
+// went afterwards, and ends up with a favourite to watch.
+let gameOn = '';
+let gameSince = 0;
+const gameLines = (g) => (g === life.gameFav
+  ? [`${g}! My favourite to watch!`, `Ooh, ${g} again! Budge up, I can't see.`]
+  : [`Ooh, ${g}! Can I watch? I'll be good.`, `Is that ${g}? Is it my turn after?`, `${g}! Play time!`]);
+
+function gameOver(g, ms) {
+  const min = Math.round(ms / 60000);
+  if (min < 1) return;
+  rollDay();
+  day.gameMin = (day.gameMin || 0) + min;
+  store('buddy-day', day);
+  life.week.games += min;
+  life.games[g] = (life.games[g] || 0) + min;
+  let top = Object.entries(life.games).sort((a, b) => b[1] - a[1]);
+  if (top.length > 40) life.games = Object.fromEntries(top = top.slice(0, 25));
+  const newFav = top[0][1] >= 180 && top[0][0] !== life.gameFav;
+  if (newFav) life.gameFav = top[0][0];
+  saveLife();
+  if (min < 10 && !newFav) return;
+  // quiet mode lifts a moment after the game goes away
+  setTimeout(() => {
+    if (siteBusy()) return;
+    lastActivity = Date.now();
+    say(newFav ? `I've decided. ${life.gameFav} is my favourite game to watch.`
+      : pick([`How was ${g}? Did we win?`, `${span(ms)} of ${g}! I watched the whole thing.`, `Good game? I cheered. Quietly.`]), 4500);
+  }, 2500);
+}
+
 window.buddy.onPresence((p) => {
   const before = presence;
-  presence = { full: !!p.full, mic: !!p.mic, app: String(p.app || ''), seq: Number(p.seq) || 0 };
+  presence = { full: !!p.full, mic: !!p.mic, app: String(p.app || ''), game: clip(String(p.game || ''), 24), seq: Number(p.seq) || 0 };
   applyQuiet();
-  if (presence.seq === before.seq) return;
   const now = Date.now();
+  const g = presence.app === 'game' ? presence.game : '';
+  if (g !== gameOn) {
+    if (gameOn) gameOver(gameOn, now - gameSince);
+    gameOn = g;
+    gameSince = now;
+  }
+  if (presence.seq === before.seq) return;
   appSwitches = appSwitches.filter((t) => now - t < 30000);
   appSwitches.push(now);
-  noticeApp(presence.app);
+  if (presence.app === 'ai' && noticeOn) rival();
+  else if (presence.app === 'claude' && rivalOpen) loyal();
+  else if (!frosty(presence.app)) noticeApp(presence.app);
 });
 
 window.buddy.onWorld((what) => {
   if (quiet || hiding || fx === 'sleep') return;
   if (what === 'battery') say(pick(['We\'re on battery! I\'ll use fewer pixels.', 'Unplugged! Living dangerously.']), 3500);
   else if (what === 'ac') say(pick(['Plugged in. Mmm, electricity.', 'Power! I feel brighter already.']), 3000);
-  else if (what === 'display-added') { bump('excite', 0.5); if (!fx) setFx('surprise', 900); say('A new screen! More room to explore!', 3500); }
+  else if (what === 'display-added') { bump('excite', 0.5); bump('curio', 0.5); if (!fx) setFx('surprise', 900); say('A new screen! More room to explore!', 3500); }
   else if (what === 'display-removed') say('Hey, where did the other screen go?', 3000);
 });
 
@@ -2062,6 +2584,522 @@ function welcomeBack(gone) {
     : pick([`Welcome back! ${span(gone)} without you.`, 'You\'re back! I kept your spot warm.', 'Oh, hi again! Good break?'])), 4000);
 }
 
+// ---- music: he hears what is playing, dances to it and settles on a favourite ----
+
+let tuneTimer;
+let tuneGone;
+let tuneSettle;
+let lastHeard = '';
+let lastTuneLine = 0;
+let lastFavLine = 0;
+let tuneStart = 0;
+let lastSkipLine = 0;
+const tuneCount = new Map(); // how often each track has been on since he woke up; never saved
+const FAV_TUNES = 8; // songs by one artist before he calls them his favourite
+
+function tuneLine(t) {
+  const now = Date.now();
+  if (quiet || focusUntil || hiding || rps || fx || state !== 'idle') return;
+  const fav = !!t.artist && t.artist === life.tuneFav;
+  if (fav ? now - lastFavLine < 20 * 60000 : now - lastTuneLine < 10 * 60000) return;
+  lastTuneLine = now;
+  if (fav) lastFavLine = now;
+  lastActivity = now;
+  setFx('dance', fav ? 3600 : 2400);
+  const title = clip(t.title, 34);
+  const artist = clip(t.artist, 28);
+  if (ageIndex() === 0) return say(pick(['♪ La la la! ♪', 'Moosic!', '♪ Ba ba ba! ♪']), 2500);
+  if (fav) {
+    bump('joy', 0.15);
+    did('favtune');
+    return say(pick([`It's ${artist}! My favourite! Turn it up!`, `${artist}! This is my song!`, `♪ ${artist}! ♪ I know all the words. There are no words. I know them.`]), 4000);
+  }
+  if (ageIndex() === 2) return say(pick(['This is actually okay. Don\'t tell anyone.', `"${title}"? …Fine. It's catchy.`, 'Your music is so old. I kind of like it.']), 3500);
+  say(pick([
+    `♪ "${title}" ♪ Good choice.`,
+    artist ? `Ooh, ${artist}! Turn it up!` : 'Ooh, turn it up!',
+    `♪ ${title} ♪ I like this one.`,
+    t.from === 'browser' ? 'Ooh, what are we listening to?' : 'Is this a new one? I like it.',
+  ]), 3500);
+}
+
+// it has been on for half a minute: that counts as listened to
+function heard(t) {
+  const key = t.title + '\n' + t.artist;
+  if (tune !== t || key === lastHeard) return;
+  lastHeard = key;
+  day.songs = (day.songs || 0) + 1;
+  did('music');
+  store('buddy-day', day);
+  life.week.songs++;
+  if (tuneCount.size > 300) tuneCount.clear();
+  const times = (tuneCount.get(key) || 0) + 1;
+  tuneCount.set(key, times);
+  if (times === 3 && !siteBusy()) {
+    say(ageIndex() === 2 ? 'This one AGAIN? …okay, it\'s a banger.' : pick(['This one again? I know all the words now.', 'Third time today! It\'s our song now.', '♪ I know this one! ♪ I should. It\'s the third time.']), 4000);
+  }
+  if (!t.artist) return saveLife();
+  if (life.week.tunes[t.artist] || Object.keys(life.week.tunes).length < 40) life.week.tunes[t.artist] = (life.week.tunes[t.artist] || 0) + 1;
+  life.tunes[t.artist] = (life.tunes[t.artist] || 0) + 1;
+  let top = Object.entries(life.tunes).sort((a, b) => b[1] - a[1]);
+  if (top.length > 60) life.tunes = Object.fromEntries(top = top.slice(0, 40));
+  const [name, n] = top[0];
+  if (n >= FAV_TUNES && name !== life.tuneFav && n > (life.tunes[life.tuneFav] || 0)) {
+    const first = !life.tuneFav;
+    life.tuneFav = name;
+    if (!quiet && !hiding && fx !== 'sleep') {
+      bump('joy', 0.2);
+      lastFavLine = Date.now();
+      say(first ? `I've decided. ${clip(name, 28)} is my favourite.` : `I've changed my mind. ${clip(name, 28)} is my favourite now.`, 5000);
+    }
+  }
+  saveLife();
+}
+
+function setTune(next) {
+  clearTimeout(tuneTimer);
+  clearTimeout(tuneSettle);
+  const now = Date.now();
+  // his favourite, skipped before it had got going
+  const skipped = tune && next && tune.artist && tune.artist === life.tuneFav && next.artist !== tune.artist && now - tuneStart < 15000;
+  tune = next;
+  tuneStart = now;
+  render();
+  if (!next) return;
+  tuneTimer = setTimeout(() => heard(next), 30000);
+  if (skipped && now - lastSkipLine > 10 * 60000 && !siteBusy()) {
+    lastSkipLine = now;
+    bump('irritation', 0.15);
+    say(pick(['Hey! I was listening to that!', `You skipped ${clip(life.tuneFav, 24)}? In front of me?`, 'Skip?! That was the good bit!']), 3500);
+    return;
+  }
+  // titles arrive a moment before artists; wait for the track to settle
+  tuneSettle = setTimeout(() => { if (tune === next) tuneLine(next); }, 2500);
+}
+
+window.buddy.onMusic((m) => {
+  const next = musicOn && m && typeof m.title === 'string' && m.title
+    ? { title: clip(m.title, 80), artist: clip(String(m.artist || ''), 60), from: String(m.from || '') } : null;
+  clearTimeout(tuneGone);
+  // the gap between two tracks is not silence
+  if (!next) { if (tune) tuneGone = setTimeout(() => setTune(null), 5000); return; }
+  if (tune && tune.title === next.title && tune.artist === next.artist) return;
+  setTune(next);
+});
+
+// ---- pages: the kind of site in the browser in front, never which page ----
+
+const SITE_LINES = {
+  code:   ['Ooh, looking something up?', 'Other people\'s code! Let\'s peek.', 'Someone else had this bug too. Comforting.'],
+  claude: ['Is that Claude? In a browser? Hi, Claude!', 'Oh, the other window he lives in.', 'Tell him I said hello.'],
+  video:  ['Ooh, a video! Can I watch too?', 'Is it a cat video? Please be a cat video.', 'I\'ll hold the popcorn.'],
+  social: ['Just a quick look, right?', 'Ooh, what are people saying?', 'Scroll, scroll, scroll.'],
+  shop:   ['Are we buying something? Is it for me?', 'Shopping! I need a tiny hat. Another one.', 'Add it to the basket. Go on.'],
+  mail:   ['Mail! Anything for me?', 'So many letters. Answer the nice ones first.'],
+  docs:   ['Writing something? Use big words.', 'A document! Very official.'],
+  wiki:   ['Ooh, learning things! Tell me one.', 'One article. Just one. …It\'s never one.'],
+  search: ['Looking for something? I\'d help. I only know where the snacks are.', 'Lost something on the internet?'],
+};
+let pagesOn = false;
+const siteTime = {}; // kind -> { ms, seen }: how long it has been in front lately
+const siteSaid = {};
+let lastSiteLine = 0;
+let lastSiteNag = 0;
+const siteBusy = () => quiet || focusUntil || hiding || rps || fx || state !== 'idle';
+
+// another AI in front, in a browser tab or as its own app: he takes it personally, and stays
+// jealous for as long as it is there. A pet puts it right, as with any jealousy.
+let lastRival = 0;
+let rivalOpen = false; // he has seen another AI, and you have not been back to Claude since
+const withRival = () => site === 'ai' || presence.app === 'ai';
+
+function rival() {
+  if (fx === 'sleep') return;
+  const now = Date.now();
+  bump('envy', 1);
+  rivalOpen = true;
+  if (life.week.aiOn !== todayKey()) { life.week.aiOn = todayKey(); life.week.ai++; saveLife(); }
+  if (now - lastRival < 10 * 60000) return;
+  lastRival = now;
+  did('rival');
+  if (siteBusy()) return;
+  hushUntil = now + 5000; // his own line, not the usual one for the mood
+  lastActivity = now;
+  say(ageIndex() === 0 ? pick(['No! Mine!', 'Not that one! Me!'])
+    : ageIndex() === 2 ? pick(['Wow. Okay. Go talk to your other AI, then.', 'Whatever. I didn\'t want to help anyway.'])
+    : pick([
+      'Who is THAT? Are you seeing other AIs?',
+      'Oh. Another AI. I see how it is.',
+      'Does that one have a crab? No. It does not.',
+      'I thought we had something. Claude and you and me.',
+      'I\'m not jealous. I\'m just standing here. Watching.',
+      'Does Claude know about this?',
+    ]), 4500);
+}
+
+// back with Claude after all that
+function loyal() {
+  rivalOpen = false;
+  bump('envy', -1);
+  bump('joy', 0.2);
+  bump('pride', 0.4);
+  did('loyal');
+  if (siteBusy()) return;
+  hushUntil = Date.now() + 5000;
+  lastActivity = Date.now();
+  setFx('jump', 900);
+  say(ageIndex() === 2 ? pick(['Oh, NOW you\'re back with Claude. Cool. Whatever. (yes!)', 'Knew it.'])
+    : pick(['Back with Claude! I knew it. I KNEW it.', 'Oh, Claude again? I wasn\'t worried. Not even a bit.', 'There we are. The good one. Hi, Claude!', 'You came back! We forgive you. I checked with Claude.']), 4500);
+}
+
+// An explicit site in front. He is told only that it is one, and it goes no further: nothing
+// about it is counted, saved or written in the diary. What he makes of it depends on how old
+// he is and the mood he is in. Little, he knows it is not for him and looks somewhere else;
+// a teenager is mortified; grown up he is disgusted, curious or frankly fascinated.
+const ADULT_LINES = {
+  baby: ['Uh oh. Not for me!', '*covers eyes*', 'I look at floor now.', 'Too little for this!', 'Bye-bye, screen.', 'No look. No look.'],
+  kid: [
+    'I don\'t think I\'m meant to see this one.',
+    '*covers eyes* Tell me when it\'s gone.',
+    'This one is for grown-ups. I\'ll count my legs.',
+    'I\'m going to look at the taskbar for a bit.',
+    'La la la, not looking.',
+    'Grown-up stuff. I\'ll be over here.',
+    'I\'m not peeking. You can check.',
+    'Can we look at a cat video after?',
+  ],
+  teen: [
+    'Oh my GOD. I\'m right HERE.',
+    'Ew. Ew ew ew. Warn me next time.',
+    'I did not need to know this about you.',
+    '…I\'m just going to face the other way. Forever.',
+    'Seriously? With me standing here?',
+    'Cool. Cool cool cool. I saw nothing.',
+    'Could you NOT. I live on this screen.',
+    'This is so awkward. For you. Mostly for me.',
+    'I\'m telling nobody. Mostly because I\'d have to say it out loud.',
+    'Gross. I\'m going to go and stare at a wall.',
+  ],
+  disgusted: [
+    'Oh. Oh no. I have eyes, you know.',
+    'Ugh. I was having such a nice day.',
+    'Really? On the screen I live on?',
+    'I\'m going to need to wash my pixels.',
+    '*turns away* Tell me when it\'s over.',
+    'Some things a small crab cannot unsee.',
+    'Bleh. Put it away. The tab, I mean.',
+    'I\'ll be over here, thinking about clean code.',
+    'Yuck. And I\'ve seen your node_modules.',
+    'No. No thank you. I\'m looking at the wallpaper.',
+    'I am telling Claude nothing. I want that noted.',
+    'This is not what the internet was built for. Well. It is. But still.',
+    'I live here. HERE. Just so you remember.',
+    'Eugh. I felt that in all four legs.',
+    'I\'m going to close my eyes and think about unit tests.',
+    'There is a crab present. Me. I am the crab.',
+  ],
+  curious: [
+    'Oh. So THAT\'s what that site is.',
+    'Hm. Interesting choice of tab.',
+    'Is this… research? It looks like research.',
+    'I have questions. I\'m not going to ask them.',
+    'Huh. Humans are complicated.',
+    'So this is what you do while Claude is thinking.',
+    'I\'m not judging. I\'m observing. There\'s a difference.',
+    'Ah. One of THOSE tabs. Noted. Not written down, just noted.',
+    'Fascinating species, yours.',
+    'Do they know a small crab is watching?',
+    'I always wondered what was on this side of the internet.',
+    'Not my business. I\'m looking anyway. No I\'m not.',
+    'Is this what "clearing your head" means?',
+    'I\'m learning things. I don\'t know what, yet.',
+    'So many tabs in the world, and you picked this one.',
+    'Does this count as a hobby? I have hobbies too. Mine is juggling.',
+  ],
+  fascinated: [
+    'Ooooh. Scandalous.',
+    'Well, well, WELL. Look who has a private life.',
+    '*eyes go wide* The internet really does have everything.',
+    'Oh my. I am learning so much about you today.',
+    'Bold. Very bold.',
+    'I shouldn\'t look. I\'m looking. I shouldn\'t.',
+    'This is the most interesting tab you\'ve opened all week.',
+    'Goodness. And here I thought you only read docs.',
+    '*leans in* …for science.',
+    'So the rumours about the internet were true!',
+    'I can\'t look away. Somebody close my eyes for me.',
+    'Wow. Okay! No notes.',
+    'And I thought the terminal was where the excitement was.',
+    'Oh, this is going straight in the diary. …No it isn\'t. I promised.',
+    'My, my. Don\'t mind me, I\'m only gawping.',
+    'Ha! You have layers. I respect that.',
+  ],
+  // still there ten minutes later
+  stayed: {
+    disgusted: ['Still? I\'ve been staring at the wall for ten minutes.', 'Are we done? My neck hurts from looking away.', 'I\'ve counted every pixel of the taskbar. Twice.'],
+    curious: ['Ten minutes. Thorough, aren\'t you.', 'You\'ve been here a while. Just saying.', 'Long piece of research, this.'],
+    fascinated: ['Ten minutes! I\'ve stopped blinking.', 'I\'m not bored yet, if that\'s what you\'re asking.', 'Take your time. I\'m still gawping.'],
+    teen: ['Are you DONE yet?', 'Ten minutes. I\'m counting. Loudly.'],
+  },
+  // and when it has gone again
+  after: {
+    young: ['Can I look now?', 'Is it gone? Okay!'],
+    teen: ['Finally. We never talk about this.', 'Is it safe to turn round?'],
+    disgusted: ['Is it safe to look now?', 'Thank you. I can breathe again.', 'Right. Let us never speak of it.'],
+    curious: ['And we\'re back. I have learned nothing I can repeat.', 'Back to work? Back to work.'],
+    fascinated: ['Aww. I was just getting interested.', 'And we\'re back. That was educational.', 'Over already?'],
+  },
+};
+let lastAdult = 0;
+let adultTake = ''; // how he took it this time: young | teen | disgusted | curious | fascinated
+let adultMs = 0;
+
+function explicit() {
+  const now = Date.now();
+  if (fx === 'sleep' || siteBusy() || now - lastAdult < 2 * 60000) return;
+  lastAdult = lastActivity = now;
+  hushUntil = now + 5000; // his own line, not the usual one for the mood
+  adultMs = 0;
+  const age = ageIndex();
+  if (age < 2) {
+    // too little: he does not look
+    adultTake = 'young';
+    setFx('look', 2600);
+    say(pick(age === 0 ? ADULT_LINES.baby : ADULT_LINES.kid), 3500);
+    return;
+  }
+  if (age === 2) {
+    adultTake = 'teen';
+    bump('shame', 0.5);
+    setFx(Math.random() < 0.5 ? 'eyeroll' : 'yuck', 2200);
+    say(pick(ADULT_LINES.teen), 4000);
+    return;
+  }
+  // grown up: the mood he is in, and the sort he is, decide which way it goes
+  const sour = ['grumpy', 'tired', 'hurt', 'glum', 'worried', 'scared', 'embarrassed', 'hungry', 'homesick', 'focused'].includes(mood) || trait('shy') || trait('anxious');
+  const keen = ['excited', 'joyful', 'mischievous', 'bored', 'smug', 'proud'].includes(mood) || trait('dramatic');
+  const roll = Math.random();
+  adultTake = sour ? (roll < 0.8 ? 'disgusted' : 'curious')
+    : keen ? (roll < 0.7 ? 'fascinated' : 'curious')
+      : roll < 0.55 ? 'curious' : roll < 0.8 ? 'fascinated' : 'disgusted';
+  if (adultTake === 'disgusted') { bump('irritation', 0.15); bump('shame', 0.3); setFx('yuck', 2200); }
+  else if (adultTake === 'curious') { bump('curio', 0.5); setFx('peer', 2400); }
+  else { bump('excite', 0.3); bump('curio', 0.3); setFx('surprise', 1600); }
+  say(pick(ADULT_LINES[adultTake]), 4500);
+}
+
+// it has gone from the screen: sometimes he has a last word
+function unexplicit() {
+  const took = adultTake;
+  adultTake = '';
+  adultMs = 0;
+  if (!took || siteBusy() || Date.now() - lastAdult < 8000 || Math.random() < 0.5) return false;
+  lastActivity = Date.now();
+  hushUntil = Date.now() + 4000;
+  setFx('look', 1800);
+  say(pick(ADULT_LINES.after[took]), 3500);
+  return true;
+}
+
+// A grudge: the kind of app that was in front most often this week when he got jealous
+// (three times at least). He is frosty the moment it comes to the front again.
+let lastFrost = 0;
+function grudge() {
+  let top = '';
+  for (const [k, n] of Object.entries(life.week.envy)) if (n >= 3 && n > (life.week.envy[top] || 0)) top = k;
+  return top;
+}
+
+function frosty(app) {
+  const now = Date.now();
+  if (!app || app !== grudge() || now - lastFrost < 30 * 60000 || siteBusy() || mood === 'hurt') return false;
+  lastFrost = lastActivity = now;
+  hushUntil = now + 4000;
+  bump('envy', 0.35);
+  bump('irritation', 0.1);
+  did('grudge');
+  setFx('eyeroll', 1800);
+  say(pick(['Oh. THAT again.', 'Here we go. Your favourite.', 'I\'ll just wait here, shall I? Like last time.', 'That one again. Not that I\'m counting. I\'m counting.', 'Don\'t mind me. You never do when that\'s open.', '*looks away pointedly*']), 4000);
+  return true;
+}
+
+// something just broke and now there is a code site in front: he puts the two together
+let lastFailAt = 0;
+let lastResearch = 0;
+function researching() {
+  const now = Date.now();
+  if (now - lastFailAt > 3 * 60000 || now - lastResearch < 10 * 60000 || quiet || hiding || rps || focusUntil || fx === 'sleep') return false;
+  lastResearch = now;
+  bump('worry', -0.2);
+  setFx('peer', 1800);
+  say(pick(['Looking it up? Good idea.', 'Somebody out there has had this exact error. I believe in them.', 'Research! I\'ll read over your shoulder.', 'Ooh, are we asking the internet what went wrong?']), 4000);
+  return true;
+}
+
+// shopping: he asks for something, once a day, and takes the next snack to be it
+const WISHES = ['a tiny umbrella', 'a second, smaller hat', 'a bell', 'a very small boat', 'a rock with a face', 'a jar for my pixels', 'a ladder (for reasons)', 'one (1) balloon'];
+function wish() {
+  if (life.wish || life.wishOn === todayKey() || siteBusy()) return false;
+  life.wish = pick(WISHES);
+  life.wishOn = todayKey();
+  saveLife();
+  lastSiteLine = siteSaid.shop = lastActivity = Date.now();
+  setFx('peer', 1800);
+  say(`Ooh, shopping! Can you get me ${life.wish}? Please?`, 4500);
+  return true;
+}
+
+window.buddy.onPage((kind) => {
+  const was = site;
+  site = pagesOn && typeof kind === 'string' ? kind : '';
+  if (site === 'call' || was === 'call') applyQuiet();
+  if (site === 'adult') return explicit();
+  if (was === 'adult' && unexplicit()) return;
+  if (site === 'ai') return rival();
+  if (site === 'claude' && rivalOpen) return loyal();
+  if (site === 'code' && researching()) return;
+  if (site === 'shop' && wish()) return;
+  const lines = site === 'shop' && life.wish ? [`Is ${life.wish} in the basket yet?`, `Shopping again! Don't forget ${life.wish}.`] : SITE_LINES[site];
+  const now = Date.now();
+  if (!lines || siteBusy() || now - lastSiteLine < 5 * 60000 || now - (siteSaid[site] || 0) < 40 * 60000) return;
+  lastSiteLine = siteSaid[site] = now;
+  lastActivity = now;
+  bump('curio', 0.4);
+  setFx('peer', 1800);
+  say(pick(lines), 3500);
+});
+
+let dawdle = 0; // how long Claude has been kept waiting for a video or a scroll
+let lastDawdle = 0;
+let lateMs = 0; // music or videos in the small hours
+let lastLate = 0;
+
+// every half minute: what has been in front for a while
+setInterval(() => {
+  const now = Date.now();
+  rollWeek();
+  for (const k of Object.keys(siteTime)) if (k !== site && now - siteTime[k].seen > 10 * 60000) delete siteTime[k];
+  if (withRival() && fx !== 'sleep') bump('envy', 0.2); // it does not wear off while he can see it
+  const idling = site === 'social' || site === 'video';
+  if (site === 'video') {
+    life.week.video += 0.5;
+    if (life.week.video % 5 === 0) saveLife();
+  }
+
+  // Claude is waiting on an answer and you are somewhere else entirely
+  if (idling && alertSession()) {
+    dawdle += 30000;
+    if (dawdle >= 60000 && now - lastDawdle > 5 * 60000 && !quiet && !hiding && !rps && fx !== 'sleep') {
+      lastDawdle = now;
+      did('dawdle');
+      setFx('knock', 1500);
+      sfx('poke');
+      say(pick(['*tap tap* Claude is waiting for you!', 'Psst. Claude asked you something. A while ago.', 'Claude needs you! The internet will still be there.', '*knocks* Hello? Claude? Remember Claude?']), 5000);
+      return;
+    }
+  } else dawdle = 0;
+
+  // still up, and still playing things
+  if (isNight() && (site === 'video' || tune)) {
+    lateMs += 30000;
+    if (lateMs >= 10 * 60000 && now - lastLate > 3 * 3600000 && !siteBusy()) {
+      lastLate = now;
+      did('late');
+      setFx('yawn', 1800);
+      say(site === 'video' ? pick(['One more and then bed? *yawn*', 'It\'s so late. Last video. Promise?']) : pick(['*yawn* Night music. One more song and then bed?', 'This is a lullaby now. I\'ve decided.']), 4500);
+      return;
+    }
+  } else lateMs = 0;
+
+  // an explicit site, and he has been politely (or not) standing there for ten minutes
+  if (site === 'adult' && adultTake) {
+    adultMs += 30000;
+    const lines = ADULT_LINES.stayed[adultTake];
+    if (adultMs === 10 * 60000 && lines && !siteBusy()) {
+      lastActivity = now;
+      setFx(adultTake === 'disgusted' || adultTake === 'teen' ? 'eyeroll' : 'peer', 1800);
+      say(pick(lines), 4000);
+      return;
+    }
+  }
+
+  if (!idling) return;
+  const t = siteTime[site] || (siteTime[site] = { ms: 0, seen: now });
+  t.ms += 30000;
+  t.seen = now;
+  if (t.ms < (site === 'social' ? 20 : 60) * 60000 || now - lastSiteNag < 60 * 60000 || siteBusy()) return;
+  lastSiteNag = now;
+  t.ms = 0;
+  did(site === 'social' ? 'scroll' : 'watch');
+  setFx('peer', 1800);
+  say(site === 'social' ? pick(['Still scrolling? It\'s been twenty minutes.', 'That was a long "quick look".', 'Has the internet ended yet?'])
+    : pick(['An hour of videos! My eyes are square. Yours?', 'We\'ve watched for an hour. Stretch?']), 4500);
+}, 30000);
+
+// ---- the clipboard and the Downloads folder: only that something arrived ----
+
+let copies = [];
+let lastCopy = 0;
+let lastCopyLine = 0;
+
+window.buddy.onCopy(() => {
+  const now = Date.now();
+  if (now - lastCopy < 400) return; // one copy can change the clipboard several times over
+  lastCopy = now;
+  copies = copies.filter((t) => now - t < 20000);
+  copies.push(now);
+  if (!noticeOn || siteBusy()) return;
+  if (copies.length >= 5 && now - lastCopyLine > 10 * 60000) {
+    lastCopyLine = now;
+    copies = [];
+    setFx('dizzy', 1200);
+    say(pick(['Copy, copy, copy! Are you collecting them?', 'That\'s a lot of copying. Is one of them for me?', 'Ctrl-C, Ctrl-C, Ctrl-C. I know that song.']), 3500);
+  } else if (copies.length === 1 && now - lastCopyLine > 45 * 60000 && Math.random() < 0.25) {
+    lastCopyLine = now;
+    setFx('peer', 1500);
+    say(pick(['Ooh, you copied something! Don\'t tell me what. I\'m not allowed to know.', 'Something went in the clipboard! I only heard the click.']), 3500);
+  }
+});
+
+let lastDownloadLine = 0;
+
+window.buddy.onDownload((f) => {
+  const now = Date.now();
+  if (!noticeOn || !f || siteBusy() || now - lastDownloadLine < 3 * 60000) return;
+  lastDownloadLine = lastActivity = now;
+  const ext = String(f.ext || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
+  const food = foodOf(ext ? 'x.' + ext : '');
+  bump('hunger', 0.1);
+  bump('curio', 0.6);
+  setFx('peer', 1800);
+  say(food && food.id === life.fav && life.favFound ? `Something landed in Downloads and it smells like ${food.name}. My favourite! Is it for me?`
+    : food && food.id === 'programs' ? 'A program in Downloads? *sniff* …you eat it first.'
+    : Number(f.size) > 500e6 ? 'Whoa, that download is ENORMOUS. A feast! Is it for me?'
+    : food ? `Ooh, fresh ${food.name} in Downloads! Is it for me?`
+    : 'Something new in Downloads! Is it for me? Drag it over!', 4500);
+});
+
+// ---- the week in the album: a card every Monday for the week that has just ended ----
+
+function rollWeek(unseen) {
+  if (life.week.from === weekKey()) return;
+  const w = life.week;
+  life.week = newWeek();
+  let tasks = 0;
+  for (let i = 0; i < 7; i++) { const d = new Date(w.from + 'T12:00'); d.setDate(d.getDate() + i); tasks += history[dateKey(d)] || 0; }
+  const artist = Object.entries(w.tunes).sort((a, b) => b[1] - a[1])[0];
+  const hours = (min) => (min >= 90 ? `${Math.round(min / 60)} h` : `${Math.round(min)} min`);
+  const parts = [
+    tasks && plural(tasks, 'task'),
+    w.songs >= 3 && `${w.songs} songs${artist && artist[1] >= 3 ? `, mostly ${clip(artist[0], 16)}` : ''}`,
+    w.video >= 20 && `${hours(w.video)} of videos`,
+    w.games >= 20 && `${hours(w.games)} of games`,
+    w.ai > 0 && `${plural(w.ai, 'day')} with another AI`,
+  ].filter(Boolean);
+  if (parts.length) snap('week', `Week of ${new Date(w.from + 'T12:00').toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}`, parts.join('. ') + '.', '', unseen);
+  saveLife();
+}
+
 // ---- typing along: it only ever hears that a key went down, never which one ----
 
 let keyTimes = [];
@@ -2069,19 +3107,56 @@ let typingSince = 0;
 let lastTypeCheer = 0;
 let lastTypeCare = 0;
 
+let restarts = []; // each time the typing picked up again after a short stop
+let flowSince = 0; // since when it has gone on without a real pause
+let stuckTimer;
+let lastStuck = 0;
+let lastFrantic = 0;
+let lastHalting = 0;
+let lastFlow = 0;
+
+// a burst of typing, and then nothing: no keys, and no mouse either
+function stuck() {
+  const now = Date.now();
+  if (now - lastKey < 11000 || cur.movedAt > lastKey + 1500 || now - lastStuck < 15 * 60000 || !typeAlong || quiet || hiding || fx || state !== 'idle') return;
+  lastStuck = now;
+  setFx('peer', 1800);
+  say(pick(['Stuck?', 'The clacking stopped. Everything okay?', 'And… pause. Thinking?', 'Lost the thread? Take your time.', 'Staring at it helps. Sometimes.']), 3500);
+}
+
 window.buddy.onKey(() => {
   const now = Date.now();
-  if (now - lastKey > 15000) typingSince = now;
+  const since = now - lastKey;
+  if (roaming) stopRoam();
+  if (since > 15000) typingSince = now;
+  if (since > 4000 || !flowSince) flowSince = now;
+  if (since > 2000 && since < 9000) restarts.push(now);
+  restarts = restarts.filter((t) => now - t < 60000);
   lastKey = now;
   keyTimes.push(now);
   while (now - keyTimes[0] > 10000) keyTimes.shift();
+  clearTimeout(stuckTimer);
+  if (keyTimes.length >= 40) stuckTimer = setTimeout(stuck, 12000);
   if (!typeAlong || hiding || fx || !(state === 'idle' || state === 'thinking')) return;
   wrap.animate([{ translate: '0 0' }, { translate: '0 5px' }, { translate: '0 0' }], { duration: 130 });
   if (quiet || state !== 'idle') return;
-  if (keyTimes.length >= 55 && now - lastTypeCheer > 10 * 60000) {
+  // only ever the rhythm: how fast, how long, how often it stops and starts
+  if (keyTimes.length >= 85 && now - lastFrantic > 15 * 60000) {
+    lastFrantic = now;
+    setFx('poke', 350);
+    say(pick(['Easy, easy! What did the keys ever do to you?', 'Whoa. Angry typing?', '*winces* Gently!', 'The keyboard is on our side, remember.']), 3000);
+  } else if (keyTimes.length >= 55 && now - lastTypeCheer > 10 * 60000) {
     lastTypeCheer = now;
     bump('excite', 0.4);
     say(pick(['Look at those fingers go!', 'Clack clack clack! I love that sound.', 'You\'re on a roll!', 'So fast! What are you writing?']), 3000);
+  } else if (restarts.length >= 6 && now - lastHalting > 20 * 60000) {
+    lastHalting = now;
+    restarts = [];
+    say(pick(['Type, stop. Type, stop. Tricky bit?', 'Choosing your words carefully, I see.', 'One line at a time. You\'ll get there.']), 3500);
+  } else if (now - flowSince > 3 * 60000 && keyTimes.length >= 25 && now - lastFlow > 30 * 60000) {
+    lastFlow = now;
+    bump('focus', 0.3);
+    say(pick(['In the zone. I\'ll keep quiet.', 'Three minutes without stopping. Don\'t let me interrupt.', 'Look at you go. Shh, me.']), 3000);
   } else if (now - typingSince > 20 * 60000 && now - lastTypeCare > 30 * 60000) {
     lastTypeCare = now;
     say(pick(['Twenty minutes of solid typing. Wiggle your fingers?', 'You\'ve been at it a while. Proud of you.', 'So much typing! Shake your hands out.']), 4500);
@@ -2119,7 +3194,9 @@ function startHobby() {
   bump('joy', 0.05);
   if (hobby === 'hum') sfx('hum');
   const run = streak();
-  say(hobby === 'water' && run >= 3 ? `Day ${run} of our streak. Look how tall it's getting!` : pick(HOBBIES[hobby].lines), 3500);
+  say(hobby === 'water' && run >= 3 ? `Day ${run} of our streak. Look how tall it's getting!`
+    : hobby === 'hum' && life.tuneFav && !tune && Math.random() < 0.5 ? `♪ hm hm hmm ♪ That's ${clip(life.tuneFav, 24)}. It's stuck in my head.`
+    : pick(HOBBIES[hobby].lines), 3500);
 }
 
 // ---- the scarf: whatever it knits through a long command stays knitted ----
@@ -2151,6 +3228,10 @@ const DIARY_END = {
   sarcastic: ['Thrilling stuff.', 'I am told this is a career.', 'Anyway.'],
   shy: ['I hope I did okay.', 'Please don\'t read this.', 'That\'s all. Sorry.'],
   dramatic: ['What a SAGA.', 'History will remember this day.', 'I am worn out by my own greatness.'],
+  wise: ['Tomorrow, a little further.', 'Enough for one day.', 'So it goes.'],
+  nerdy: ['End of log.', 'Data recorded. Goodnight.', 'Note to self: count the pixels again.'],
+  sleepy: ['Bed now.', 'I wrote this lying down.', 'Zzz.'],
+  anxious: ['I hope nothing breaks overnight.', 'Did we save? I think we saved.', 'Tomorrow will be fine. Probably.'],
 };
 
 function writeDiary() {
@@ -2179,17 +3260,28 @@ function writeDiary() {
       seen.comfort && 'They looked worn out, so I gave them a hug. I think it helped.',
       seen.tea && 'Three things broke in a row, so I put the kettle on.',
       seen.clash && 'Two Claudes went for the same file at once. I told on them.',
+      seen.prank && 'I played a trick on them. They had it coming. A little.',
+      seen.grateful && 'They looked after me right when I needed it. I won\'t forget.',
+      seen.homesick && 'I was up on a window for ages. I missed my own spot.',
       seen.helper >= 4 && `I sent ${seen.helper} helpers out and every one of them came back.`,
       seen.omen && belief && `I worked something out today: ${omenText(belief)}.`,
       d.longestMs > 10 * 60000 && `One job took ${span(d.longestMs)}.`,
       d.knit > 60 && `I knitted through the slow bits. The scarf is ${scarfLen()} now.`,
       seen.pr && 'We opened a pull request and I let off a party popper.',
       seen.fixed && 'The tests went red, and then we made them green again.',
+      seen.smug && 'I was right about something today. I may have mentioned it.',
+      seen.nostalgic && 'I got to thinking about the old days. We have come a long way.',
       top && Object.keys(life.projects).length > 1 && (opinions().dread === top[0] ? `We were in ${clip(top[0], 24)} again. Things break in there.` : `Mostly in ${clip(top[0], 24)}.`),
       seen.commit >= 3 && `${seen.commit} commits. I planted a flag for every one.`,
       seen.fav && 'They fed me my favourite!',
+      seen.favtune ? `They put ${clip(life.tuneFav, 24)} on. I danced.` : d.songs >= 5 && `We had ${d.songs} songs on. I danced to most of them.`,
       d.snacks >= 3 && `${d.snacks} snacks. A good day for snacks.`,
       d.pokes >= 15 && `I was poked ${d.pokes} times. I counted.`,
+      seen.loyal ? 'They went off with another AI and came back to Claude. I knew they would.'
+        : seen.rival && 'They were talking to another AI. I saw. I said nothing. I said a little.',
+      seen.dawdle && 'Claude was waiting and they were off watching things. I knocked.',
+      d.gameMin >= 30 && `We played for ${span(d.gameMin * 60000)}. I watched.`,
+      seen.scroll && 'They scrolled for ages. I said something. Politely.',
       seen.guest && 'Somebody came round to see me.',
       seen.late && 'We stayed up much too late.',
       seen.heart >= 3 && 'Lots of pets.',
@@ -2236,8 +3328,10 @@ function projectHello(s) {
   saveLife();
   if (ageIndex() === 0 || was === p.last) return '';
   const n = clip(s.project, 20);
+  if (!was && Object.keys(life.projects).length > 1) bump('curio', 0.6);
   if (!was) return Object.keys(life.projects).length > 1 ? pick([`${n}? I've never been in here before. Ooh.`, `A new project! Hello, ${n}.`]) : '';
   const gap = isDate(was) ? Math.round((new Date(p.last) - new Date(was)) / 864e5) : 0;
+  if (gap >= 14) bump('nostalgia', 0.8);
   if (gap >= 14) return pick([`${n}! We haven't been in here for ${gap} days. I missed it.`, `Oh, ${n}! It's been ${gap} days. Is it okay?`]);
   const o = opinions();
   if (o.dread === s.project) {
@@ -2340,6 +3434,7 @@ function omenText(b) {
 
 function believe(b) {
   life.omens.held.push(b);
+  bump('smug', 0.5);
   did('omen');
   applyLook(); // saves, and the wardrobe says which hat it is
   setTimeout(() => {
@@ -2360,11 +3455,13 @@ function omen(good, hush) {
   for (const b of [...life.omens.held]) {
     if (!now.includes(b.c)) {
       // it went wrong without the lucky thing: it did warn you
+      if (b.good && !good) bump('smug', 0.7);
       if (b.good && !good) word = word || pick([`I TOLD you. ${capital(omenText(b))}.`, `Well, what did you expect? ${capital(omenText(b))}.`]);
       continue;
     }
     if (b.good === good) {
       b.kept = (Number(b.kept) || 0) + 1;
+      bump('smug', 0.35);
       if (Math.random() < 0.35) word = word || pick([`See? ${capital(omenText(b))}.`, `Works every time. ${capital(omenText(b))}.`]);
       continue;
     }
@@ -2565,6 +3662,12 @@ window.buddy.onEvent((e) => {
         : mood === 'bored' ? 'Finally! Something to do!'
         : mood === 'proud' ? 'Another one? We\'ve got this.'
         : mood === 'loving' ? 'Anything for you.'
+        : mood === 'curious' ? 'Ooh, what is it? Show me!'
+        : mood === 'mischievous' ? 'Oh! Work. Yes. I wasn\'t up to anything.'
+        : mood === 'smug' ? 'Another one? Watch and learn.'
+        : mood === 'grateful' ? 'For you? Anything.'
+        : mood === 'homesick' ? 'Okay… and then can we go home?'
+        : mood === 'focused' ? 'Mm. Go on.'
         : mood === 'tired' ? '*yawn* …okay, one more.'
         : mood === 'worried' ? 'Okay… carefully this time.'
         : mood === 'hungry' ? 'On an empty stomach? …okay.'
@@ -2603,6 +3706,8 @@ window.buddy.onEvent((e) => {
         const detail = biteLine(e, s) || detailLine(e, s);
         const curious = detail ? null : curiousLine(e.tool, e.detail);
         if ((detail || curious) && !fx) setFx('peer', 1500);
+        // a file he has not seen today is mildly interesting; a tool he has never seen is a marvel
+        if (curious) bump('curio', ['Read', 'Edit', 'Write'].includes(e.tool) ? 0.15 : 0.5);
         tell(detail || curious || toolLine(e.tool, e.detail), 4000);
       }
       // a command can run for a long time; the knitting comes out instead of going idle
@@ -2622,7 +3727,7 @@ window.buddy.onEvent((e) => {
         tally('tests');
         did('test');
         bump('joy', 0.15);
-        if (fixed) { bump('pride', 0.6); did('fixed'); }
+        if (fixed) { bump('pride', 0.6); bump('relief', 0.9); did('fixed'); }
         feel.worry *= 0.6;
         sfx('cheer');
         setFx('hop', 500);
@@ -2662,6 +3767,7 @@ window.buddy.onEvent((e) => {
         tell(pick(['It builds!', 'Compiles. Ship it? (No.)', 'Zero errors! Zero!', 'Built. I helped. (I watched.)']), 2500);
       } else if (kind === 'danger') {
         feel.fear *= 0.4;
+        bump('relief', 0.8);
         tell('Phew. Still in one piece.', 2500);
       } else if (waited) {
         setFx('stretch', 2500);
@@ -2676,6 +3782,7 @@ window.buddy.onEvent((e) => {
       if (isCmd) endJob();
       failStreak++;
       day.fails++;
+      lastFailAt = Date.now();
       did('bug');
       blame(s);
       bump('worry', 0.3);
@@ -2788,6 +3895,7 @@ window.buddy.onEvent((e) => {
       const near = nextUnlock();
       if (near && near.at - life.tasks <= 2) bump('excite', 0.5);
       feel.worry *= 0.3;
+      if (relieved) bump('relief', 0.8);
       setState('happy');
       if (prize) {
         sfx('level'); confetti(30); setFx('spin', 700);
@@ -2826,6 +3934,7 @@ window.buddy.onEvent((e) => {
       s.state = 'sad';
       endJob();
       day.fails++;
+      lastFailAt = Date.now();
       bump('fear', 0.2);
       bump('joy', -0.4);
       bump('worry', 0.4);
@@ -2852,51 +3961,66 @@ window.buddy.onEvent((e) => {
 // ---- phrases (config.json can replace any of these lists) ----
 
 const POKE_LINES = {
-  idle:     ['Hey!', 'Boop.', 'That tickles!', 'Yes? Yes?', 'Poke received.', '*wiggles*', 'What was that for?', 'Ooh, is that a mouse?', 'Boop yourself.', 'I felt that.', 'Again? Okay!', 'Hi hi hi.', 'You rang?', 'That\'s my good side.', 'Careful, I\'m pixelated.', 'Eee!'],
-  thinking: ['Shh, thinking…', 'Hold that thought.', 'Hmm? Oh. Hi.', 'Almost had it…', 'Thinking is hard, okay?', 'Shh, the idea is loading.'],
-  working:  ['Busy! …but hi.', 'Typing here!', 'One sec, one sec.', 'Can\'t talk. Coding.', 'Later! Promise.', 'Hands full! All two of them.', 'In the zone.'],
-  happy:    ['Hehe!', 'Yay!', 'High five!', 'We did good!', 'Woo!', 'Best team.'],
-  sad:      ['…thanks. I needed that.', 'It was not my fault.', 'I\'ll be okay.', 'Hug? …pixel hug?', 'Next one\'s ours.'],
-  night:    ['Mmh… it\'s so late…', '*sleepy blink*', 'Shhh. Night time.', 'Zzz—oh. Hi.', 'Whisper, please.', 'The moon says hi.'],
+  idle:     ['Hey!', 'Boop.', 'That tickles!', 'Yes? Yes?', 'Poke received.', '*wiggles*', 'What was that for?', 'Ooh, is that a mouse?', 'Boop yourself.', 'I felt that.', 'Again? Okay!', 'Hi hi hi.', 'You rang?', 'That\'s my good side.', 'Careful, I\'m pixelated.', 'Eee!', 'Boop logged.', 'Oh! It\'s you.', 'Do that again and I\'ll… enjoy it.', 'Present!', 'That\'s my shell. It\'s a nice shell.', 'One poke, please. Thank you.', 'I was just thinking about you.', 'Mind the pixels.', 'Poke count: lots.', 'Ooh, cold finger.', 'Yes, I\'m real. Sort of.', 'You found the button. I\'m the button.'],
+  thinking: ['Shh, thinking…', 'Hold that thought.', 'Hmm? Oh. Hi.', 'Almost had it…', 'Thinking is hard, okay?', 'Shh, the idea is loading.', 'One moment. Big thought.', 'Don\'t jog the idea.', 'Nearly… nearly…'],
+  working:  ['Busy! …but hi.', 'Typing here!', 'One sec, one sec.', 'Can\'t talk. Coding.', 'Later! Promise.', 'Hands full! All two of them.', 'In the zone.', 'Mid-keystroke!', 'Poke me after the tests.', 'Shh. Tools are running.'],
+  happy:    ['Hehe!', 'Yay!', 'High five!', 'We did good!', 'Woo!', 'Best team.', 'We\'re on fire! Not literally.', 'Again! Do another task!', 'That felt good.'],
+  sad:      ['…thanks. I needed that.', 'It was not my fault.', 'I\'ll be okay.', 'Hug? …pixel hug?', 'Next one\'s ours.', 'It\'s fine. I\'m fine. Are you fine?', 'We\'ll fix it.', 'Pat pat. For both of us.'],
+  night:    ['Mmh… it\'s so late…', '*sleepy blink*', 'Shhh. Night time.', 'Zzz—oh. Hi.', 'Whisper, please.', 'The moon says hi.', 'Did you know it\'s dark?', '*tiny yawn* …hi.', 'Poke me quietly.'],
 };
 
 // What a poke gets you depends on how it feels (only while it isn't busy).
 const MOOD_POKE = {
-  joyful:  ['Hehe! Again!', 'Boop back!', '♥', 'Best day.', 'Life is good!', 'I could do this all day.', 'You\'re my favourite human.'],
-  grumpy:  ['Stop it.', 'What.', 'Hmph.', 'I\'m not talking to you.', 'Do you mind.', 'Count to ten. Then don\'t.', 'I am ignoring you.'],
-  tired:   ['Mmh… five more minutes.', '*yawn* …what?', 'Too… many… pokes…', 'Wake me when it\'s done.', 'Zzz—what.'],
-  hungry:  ['Did you bring food?', 'Poke me with a snack next time.', 'Is that a snack? No? Oh.', 'Feed me and we\'ll talk.', 'My tummy says hi.'],
-  lonely:  ['You\'re here!', 'Oh! Hi! Hi!', 'I missed you!', 'Don\'t go again!', 'Stay a while?', 'I saved your spot.'],
-  worried: ['Is it going to be okay?', 'Eep!', 'Hold me.', 'Tell me it\'s fine.', 'Are the tests okay?'],
-  glum:    ['…hi.', 'Thanks for checking in.', 'Could be worse, I guess.', 'A poke helps. A little.'],
-  scared:  ['EEP!', 'D-don\'t do that!', 'Is it gone?', 'Hold me. Please.', 'I\'m fine. I\'m FINE.'],
-  embarrassed: ['Don\'t look at me.', 'You saw nothing.', '…can we forget that happened?', 'I\'m blushing. Stop.'],
-  excited: ['Yes! What?! Hi!', 'Ooh ooh ooh!', 'I can\'t sit still!', 'What\'s next? What\'s next?'],
-  proud:   ['Did you see what we did?', 'We\'re pretty great, you know.', 'Hehe. Nailed it.', 'I\'d like to thank my legs. All four.'],
-  loving:  ['♥', 'You\'re the best.', 'I like you. A lot.', '*happy sigh*', 'Never change.'],
-  jealous: ['Oh. You remembered I exist.', 'Hmph. Finally.', 'Done with the keyboard, are we?', 'I saw you with that other window.'],
-  bored:   ['Is it done yet?', 'Entertain me.', 'I\'ve counted my pixels twice.', 'Soooo bored.'],
-  hurt:    ['Please stop.', '…ow.', 'That hurts.', '*sniff*', 'Did I do something wrong?', 'I don\'t like this game.'],
+  joyful:  ['Hehe! Again!', 'Boop back!', '♥', 'Best day.', 'Life is good!', 'I could do this all day.', 'You\'re my favourite human.', 'Hee! Do it again!', 'I\'m too happy to be poked wrong.'],
+  grumpy:  ['Stop it.', 'What.', 'Hmph.', 'I\'m not talking to you.', 'Do you mind.', 'Count to ten. Then don\'t.', 'I am ignoring you.', 'Not now.', 'Poke someone else.'],
+  tired:   ['Mmh… five more minutes.', '*yawn* …what?', 'Too… many… pokes…', 'Wake me when it\'s done.', 'Zzz—what.', 'Shh. Sleeping with my eyes open.', 'Can it wait till morning?'],
+  hungry:  ['Did you bring food?', 'Poke me with a snack next time.', 'Is that a snack? No? Oh.', 'Feed me and we\'ll talk.', 'My tummy says hi.', 'Unless that finger is a snack, no.', 'I\'d trade this poke for a .txt.'],
+  lonely:  ['You\'re here!', 'Oh! Hi! Hi!', 'I missed you!', 'Don\'t go again!', 'Stay a while?', 'I saved your spot.', 'There you are!', 'Do that again. So I know you\'re real.'],
+  worried: ['Is it going to be okay?', 'Eep!', 'Hold me.', 'Tell me it\'s fine.', 'Are the tests okay?', 'Was that a good poke or a bad-news poke?', 'Don\'t startle me. I\'m fragile today.'],
+  glum:    ['…hi.', 'Thanks for checking in.', 'Could be worse, I guess.', 'A poke helps. A little.', 'Mm.', 'I suppose that\'s nice.'],
+  scared:  ['EEP!', 'D-don\'t do that!', 'Is it gone?', 'Hold me. Please.', 'I\'m fine. I\'m FINE.', 'Aah! Oh. It\'s you.', 'Warn me first!'],
+  embarrassed: ['Don\'t look at me.', 'You saw nothing.', '…can we forget that happened?', 'I\'m blushing. Stop.', 'Not while I\'m red.', 'Poke the other side. This side\'s blushing.'],
+  excited: ['Yes! What?! Hi!', 'Ooh ooh ooh!', 'I can\'t sit still!', 'What\'s next? What\'s next?', 'Is it happening? Is it NOW?', 'Poke poke poke! I love everything!'],
+  proud:   ['Did you see what we did?', 'We\'re pretty great, you know.', 'Hehe. Nailed it.', 'I\'d like to thank my legs. All four.', 'Careful. Award-winning shell.', 'You may poke the champion.'],
+  loving:  ['♥', 'You\'re the best.', 'I like you. A lot.', '*happy sigh*', 'Never change.', 'Hehe!', 'I\'d poke you back if I could reach.', 'Stay right there.'],
+  jealous: ['Oh. You remembered I exist.', 'Hmph. Finally.', 'Done with the keyboard, are we?', 'I saw you with that other window.', 'Oh, so NOW you have a free hand.', 'One poke. After all that typing. One.'],
+  bored:   ['Is it done yet?', 'Entertain me.', 'I\'ve counted my pixels twice.', 'Soooo bored.', 'Finally, something happened.', 'Do it again. I\'ve nothing else on.'],
+  hurt:    ['Please stop.', '…ow.', 'That hurts.', '*sniff*', 'Did I do something wrong?', 'I don\'t like this game.', 'I will call Dario!', 'Gently. Please.', 'Not there.'],
+  curious: ['Ooh, what\'s that?', 'Wait, show me!', 'What does it do? What does it DO?', 'Hm? Hm! Hm?', 'I have questions. Several.', 'Was that a clue?', 'Do that again. For science.'],
+  grateful: ['Thank you. Really.', 'You looked after me.', '*little bow*', 'I won\'t forget that.', 'You\'re kind, you know.', 'Thank you for that one, too.', 'I owe you a poke.'],
+  relieved: ['Phew.', 'That was close.', '*long exhale*', 'We\'re okay. We\'re okay!', 'My legs have gone all wobbly.', 'Oh good, a normal poke.', 'Everything\'s fine. Poke away.'],
+  nostalgic: ['Remember when I was little?', 'We\'ve done a lot, you and I.', 'I was just thinking about the old days.', 'Time flies when you\'re pixels.', 'You used to poke me just like that.', 'Ah, the classics.'],
+  mischievous: ['Hehehe.', 'Who, me?', 'I wasn\'t doing anything.', 'You can\'t prove it.', '*innocent whistle*', 'Poke me and see what happens.', 'I\'ll remember that. Hehe.'],
+  focused: ['Shh.', 'Mm-hm.', '…', 'Not now. In the zone.', 'Later.', 'Busy.', 'Hold on.'],
+  smug: ['Told you.', 'I\'m not saying I was right. But I was.', 'Hm? Oh, nothing. Just being correct.', 'You may admire me.', 'You\'re welcome.', 'Yes, yes, I\'m marvellous.'],
+  homesick: ['Can we go home?', 'It\'s nice up here, but… it isn\'t home.', 'I miss the floor.', 'Take me back down?', 'Is that a lift down?', 'Poke me towards the floor.'],
 };
 
 const MUSE = {
-  joyful:  ['♪ la la la ♪', 'Today is a good day.', 'I like it here.', 'I love a tidy diff.', 'Everything is working and I am suspicious.', '*happy wiggle*'],
-  grumpy:  ['Hmph.', '…', 'I am not sulking. I\'m resting angrily.', '*pointed silence*'],
-  tired:   ['*yawn*', 'So… sleepy…', 'My pixels are heavy.', 'Five-minute nap? Ten?'],
-  hungry:  ['*tummy rumbles*', 'Is it snack time yet?', 'I could really eat a file.', 'A small .txt would do.', 'I dreamt of a zip file.'],
-  lonely:  ['…hello?', 'Is anyone there?', 'I could use a poke.', 'I named the cursor. It left.', 'Even the taskbar is quiet.'],
-  worried: ['What if it breaks again?', 'I hope the tests pass…', 'Did we save? We saved, right?', 'Fingers crossed. All… none of them.'],
-  glum:    ['*sigh*', 'It\'ll go better next time.', 'Tomorrow is a new build.', 'Bugs happen. To us. A lot.'],
-  scared:  ['W-what was that?', 'I don\'t like this.', '*trembles*', 'Is it safe to look?'],
-  embarrassed: ['Nobody saw that. Nobody.', '*stares at feet*', 'I\'d like to be a smaller pixel right now.'],
-  excited: ['Something good is about to happen!', 'I can feel it!', '*bounces*', 'Eeee!'],
-  proud:   ['Look at us go.', 'I helped. I definitely helped.', 'That was good work.', '*puffs up*'],
-  loving:  ['I\'m so lucky.', 'Best human. No contest.', '♥ ♥ ♥', 'This is nice. Us. Here.'],
-  jealous: ['That keyboard gets all the attention.', 'Type type type. Never pet pet pet.', 'I can do things too, you know.', 'I bet the other windows don\'t even love you.'],
-  bored:   ['*taps foot*', 'Still waiting…', 'Any minute now. Surely.', 'I spy, with my little eye… a progress bar.'],
-  hurt:    ['*sniff*', '…', 'It still hurts a bit.', 'I only wanted to play…'],
+  joyful:  ['♪ la la la ♪', 'Today is a good day.', 'I like it here.', 'I love a tidy diff.', 'Everything is working and I am suspicious.', '*happy wiggle*', 'I could hum all day. I will.', 'Not a single red line. Lovely.'],
+  grumpy:  ['Hmph.', '…', 'I am not sulking. I\'m resting angrily.', '*pointed silence*', 'Everything is slightly annoying.', 'I\'m fine. Don\'t ask.'],
+  tired:   ['*yawn*', 'So… sleepy…', 'My pixels are heavy.', 'Five-minute nap? Ten?', 'Blink… blink…', 'Is it the weekend yet?'],
+  hungry:  ['*tummy rumbles*', 'Is it snack time yet?', 'I could really eat a file.', 'A small .txt would do.', 'I dreamt of a zip file.', 'I can smell a README from here.', 'Does anyone have a spare byte?'],
+  lonely:  ['…hello?', 'Is anyone there?', 'I could use a poke.', 'I named the cursor. It left.', 'Even the taskbar is quiet.', 'I waved at the clock. It didn\'t wave back.', 'It\'s only me and the wallpaper.'],
+  worried: ['What if it breaks again?', 'I hope the tests pass…', 'Did we save? We saved, right?', 'Fingers crossed. All… none of them.', 'Did that warning look worse than usual?', 'I\'m sure it\'s fine. Is it fine?'],
+  glum:    ['*sigh*', 'It\'ll go better next time.', 'Tomorrow is a new build.', 'Bugs happen. To us. A lot.', 'Some days are just grey pixels.', 'I\'ll try again in a bit.'],
+  scared:  ['W-what was that?', 'I don\'t like this.', '*trembles*', 'Is it safe to look?', 'Was that a noise?', 'I\'ll stay very still.'],
+  embarrassed: ['Nobody saw that. Nobody.', '*stares at feet*', 'I\'d like to be a smaller pixel right now.', 'Let\'s all look somewhere else.', 'I\'m not here. This is a screenshot.'],
+  excited: ['Something good is about to happen!', 'I can feel it!', '*bounces*', 'Eeee!', 'I can\'t wait I can\'t wait I can\'t wait.', 'My legs won\'t keep still!'],
+  proud:   ['Look at us go.', 'I helped. I definitely helped.', 'That was good work.', '*puffs up*', 'I might frame that commit.', 'We make a good team.'],
+  loving:  ['I\'m so lucky.', 'Best human. No contest.', '♥ ♥ ♥', 'This is nice. Us. Here.', 'I hope you know you\'re great.', 'This is my favourite desktop.'],
+  jealous: ['That keyboard gets all the attention.', 'Type type type. Never pet pet pet.', 'I can do things too, you know.', 'I bet the other windows don\'t even love you.', 'What does that window have that I don\'t?', 'I\'m right here. In case anyone wondered.'],
+  bored:   ['*taps foot*', 'Still waiting…', 'Any minute now. Surely.', 'I spy, with my little eye… a progress bar.', 'I\'ve named all the icons.', 'Is watching paint dry an option?'],
+  hurt:    ['*sniff*', '…', 'It still hurts a bit.', 'I only wanted to play…', 'I\'ll just sit quietly.', 'Was it something I said?'],
+  curious: ['What\'s in there, I wonder?', 'How does that work?', 'I want to press it. Whatever it is.', 'So many things I haven\'t looked inside.', 'I wonder what\'s at the bottom of that file.', 'Why is it called a kernel?'],
+  grateful: ['That was nice of them.', 'I\'m well looked after.', 'Lucky me.', 'Somebody\'s looking out for me.', 'I should say thank you more.'],
+  relieved: ['Phew…', 'It all worked out.', 'I can unclench now.', '*exhales*', 'My shell has stopped rattling.', 'We got away with it.'],
+  nostalgic: ['I was so small once.', 'Remember our first task?', 'The album is getting thick.', 'Good times. Good pixels.', 'My first hat. I still have it.', 'We were so new at this.'],
+  mischievous: ['Hehehe…', 'What if I just… no. …maybe.', 'Nobody\'s looking…', 'I have an idea. It\'s a bad one.', 'That window looks pushable.', 'I\'m being good. Suspiciously good.'],
+  smug: ['I do love being right.', 'Called it.', '*polishes claw*', 'Flawless, as usual.', 'I wouldn\'t change a thing. About me.', 'Another correct opinion in the bag.'],
+  homesick: ['I wonder what my bed is doing.', 'It\'s a long way down.', 'I want to go home…', 'The floor was nice. I liked the floor.', 'Does my spot miss me too?', 'It\'s draughty up here.'],
 };
-const MUSE_NIGHT = ['It\'s late… shouldn\'t we be asleep?', 'The screen is so bright at night.', 'Everyone else is asleep, you know.', 'Just… resting my eyes…', 'The fans are so quiet at night.', 'Shh… the code is sleeping.', 'Is that the moon or a monitor?', 'One more commit, then bed. Right?'];
+const MUSE_NIGHT = ['It\'s late… shouldn\'t we be asleep?', 'The screen is so bright at night.', 'Everyone else is asleep, you know.', 'Just… resting my eyes…', 'The fans are so quiet at night.', 'Shh… the code is sleeping.', 'Is that the moon or a monitor?', 'One more commit, then bed. Right?', 'The cursor looks tired too.', 'Night shift. Just us and the fans.', 'I can hear the hard drive thinking.', 'Even the notifications have gone to bed.', 'One more line, then sleep. That\'s what you said an hour ago.'];
 const MUSE_ANY = [
   'I wonder what that button does…',
   'What\'s in all those folders?',
@@ -2918,8 +4042,23 @@ const MUSE_ANY = [
   'I wonder how tall I am in real pixels.',
   'What\'s behind the desktop?',
   'If I blink, does the code change?',
+  'Do pixels get cold?',
+  'I wonder who named the mouse.',
+  'If I had pockets I\'d keep a semicolon in them.',
+  'Is a folder just a file with ambitions?',
+  'I think the clock is watching me.',
+  'What does the cloud weigh?',
+  'One day I\'ll read the whole changelog.',
+  'Does the cursor know it\'s being followed?',
+  'I\'d like a window seat. Oh. I have one.',
+  'Somewhere a loop is still running.',
+  'I wonder if Claude dreams in tokens.',
+  'How deep does the scrollbar go?',
+  'I could reorganise your desktop. I won\'t. I could.',
+  'Every bug was once a feature with a dream.',
+  'Are we the good guys? I think we\'re the good guys.',
 ];
-const DREAMS = ['…green tests…', '…no, not the semicolon…', '…five more commits…', 'zzz… snacks…', '…it works on my machine…', '…mmh… cursor…', '…merge conflict… no…', '…so many snacks…', '…all tests green…', '…chasing the ball…', '…who moved my taskbar…', '…just one more poke…'];
+const DREAMS = ['…green tests…', '…no, not the semicolon…', '…five more commits…', 'zzz… snacks…', '…it works on my machine…', '…mmh… cursor…', '…merge conflict… no…', '…so many snacks…', '…all tests green…', '…chasing the ball…', '…who moved my taskbar…', '…just one more poke…', '…rebase… gently…', '…a hat… for my hat…', '…the build is green… so green…', '…no more yaml…', '…who moved my window…', '…approved… merged… zzz…'];
 // what it mumbles when it dreams about something from the day
 const DREAM_OF = {
   test:   ['…all green…', '…pass… pass… pass…'],
@@ -2931,7 +4070,7 @@ const DREAM_OF = {
   globe:  ['…so many tabs…', '…the whole internet…'],
   heart:  ['…more pets…', '…right there… yes…'],
 };
-const YAWNS = ['*yaaawn*', '*yawn* …so sleepy.', 'Is it bedtime yet?', '*yawn* Just one more task?', '*yaaaawn* …excuse me.', 'My eyes are doing the thing.', '*stretch* …nope, still sleepy.'];
+const YAWNS = ['*yaaawn*', '*yawn* …so sleepy.', 'Is it bedtime yet?', '*yawn* Just one more task?', '*yaaaawn* …excuse me.', 'My eyes are doing the thing.', '*stretch* …nope, still sleepy.', '*yawn* Did I miss anything?', 'I\'m awake. I\'m awa— *yawn*', '*rubs eyes*', 'Bedtime is a state of mind. Mine.'];
 
 const MOOD_ARRIVES = {
   joyful:  ['I feel great!', '♪ la la la ♪', 'What a day!', 'I\'m in such a good mood!'],
@@ -2949,6 +4088,13 @@ const MOOD_ARRIVES = {
   jealous: ['Hmph. Busy with someone else, I see.', 'Don\'t mind me. I\'ll just be here. Alone.', 'You haven\'t looked at me in ages.'],
   bored:   ['*taps foot*', 'This is taking forever.', 'Bored. Bored bored bored.'],
   hurt:    ['That hurt…', 'Why would you do that?', '*sniff* …ow.', 'I thought we were friends.'],
+  curious: ['Ooh. What\'s THAT?', 'Hang on. I need to know more.', 'Now I\'m curious.'],
+  grateful: ['Thank you. I needed that.', 'You\'re good to me.', '*bows* Thank you.'],
+  relieved: ['Phew!', 'Oh, thank goodness.', '*long exhale* …okay.'],
+  nostalgic: ['That takes me back…', 'I was just remembering…', 'It feels like yesterday.'],
+  mischievous: ['Hehehe…', 'I\'ve just had an idea.', 'Don\'t mind me…'],
+  smug: ['I KNEW it.', 'Right again.', 'Ahem. As predicted.'],
+  homesick: ['I\'ve been up here a long time…', 'I want to go home.', 'I miss my spot.'],
 };
 
 const MOOD_REPORT = {
@@ -2968,6 +4114,14 @@ const MOOD_REPORT = {
   jealous: ['Jealous. You\'ve been busy with everything but me.', 'A bit left out, if I\'m honest.'],
   bored:   ['Bored. Waiting is hard.', 'Twiddling my arms. Nothing to do.'],
   hurt:    ['Hurt. That was too rough. (Gentle pets help. So does a snack.)', 'Sore, and a bit sad. Be gentle with me?'],
+  curious: ['Curious. Something new turned up and I want to know everything.', 'Nosy. In a good way.'],
+  grateful: ['Grateful. You looked after me just when I needed it.', 'Thankful. For you, mostly.'],
+  relieved: ['Relieved. That could have gone much worse.', 'Wobbly, but relieved.'],
+  nostalgic: ['Nostalgic. Thinking about how far we\'ve come.', 'Wistful. In a nice way.'],
+  mischievous: ['Mischievous. I\'d keep an eye on me.', 'Up to something. I\'m not saying what.'],
+  focused: ['Focused. Ask me later.', 'In the zone. Shh.'],
+  smug: ['Smug. I was right about something.', 'Pleased with myself. Very.'],
+  homesick: ['Homesick. I\'ve been up on this window for ages. Put me back on the floor?', 'Missing home. Carry me down?'],
 };
 
 const LINES = { poke: POKE_LINES, moodPoke: MOOD_POKE, muse: MUSE, museNight: MUSE_NIGHT, museAny: MUSE_ANY, dreams: DREAMS, yawns: YAWNS, moodArrives: MOOD_ARRIVES, moodReport: MOOD_REPORT };
@@ -3054,6 +4208,7 @@ function touch() {
   if (tapAt) {
     tapAt = 0;
     bump('joy', 0.2);
+    bump('thanks', 0.7);
     bump('lonely', -0.3);
   }
 }
@@ -3140,11 +4295,19 @@ function poke(e) {
   const mine = calm && Math.random() < 0.15 ? taught() : '';
   // the secret handshake, once it has let you in on it
   const boop = calm && !moodLines && life.secrets.includes('handshake') && Math.random() < 0.25 ? 'Boop. ♥' : '';
-  say(mine || boop || pick(moodLines || friendly || own || POKE_LINES[state] || POKE_LINES.idle), 2000);
+  // he keeps count, naturally
+  const count = calm && !moodLines && trait('nerdy') && Math.random() < 0.2 ? `Poke number ${life.stats.pokes}. Logged.` : '';
+  if (calm && !moodLines && trait('sarcastic') && Math.random() < 0.3) setFx('eyeroll', 900);
+  say(mine || boop || count || pick(moodLines || friendly || own || POKE_LINES[state] || POKE_LINES.idle), 2000);
 }
 
 svg.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
+  if (holdingPtr) {
+    // the click he was holding out for: the pointer is yours again, and it is not a poke
+    window.buddy.meddle('letgo');
+    return;
+  }
   down = { x: e.screenX, y: e.screenY };
   svg.setPointerCapture(e.pointerId);
 });
@@ -3152,6 +4315,9 @@ svg.addEventListener('pointerdown', (e) => {
 svg.addEventListener('pointermove', (e) => {
   if (down && !dragging && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 5) {
     dragging = true;
+    blocking = 0;
+    roaming = inching = false;
+    clearTimeout(roamTimer);
     hiding = 0; // carried out of its hiding place: game over
     away = walking = returning = goingToBed = false; // wherever it ends up is the new home
     touch();
@@ -3207,10 +4373,12 @@ svg.addEventListener('pointermove', (e) => {
         return;
       }
       touch();
+      if (blocking) setTimeout(unblock, 2000); // that is all he wanted: off your page he gets
       const wasGrumpy = mood === 'grumpy';
       const wasJealous = mood === 'jealous';
       const wasScared = mood === 'scared';
       const wasHurt = mood === 'hurt';
+      const wasLonely = mood === 'lonely';
       bump('hurt', -0.4);
       const mended = wasHurt && feel.hurt <= 0.45;
       if (mended || !wasHurt) forgiven();
@@ -3219,6 +4387,7 @@ svg.addEventListener('pointermove', (e) => {
       bump('fear', -1);
       bump('joy', 0.3);
       bump('love', 0.3);
+      if (mended || wasScared || wasLonely) bump('thanks', 0.8);
       did('heart');
       lastPet = Date.now();
       warmEgg(0.5);
@@ -3272,9 +4441,23 @@ window.addEventListener('contextmenu', (e) => {
 
 // ---- gravity: let go in the air and it falls; flick it and it flies ----
 
-window.buddy.onFly(({ speed }) => {
+window.buddy.onFly(({ speed, jump, down }) => {
+  if (down) {
+    // getting down off a window by himself, on the way to his corner
+    setFx('fall', 0);
+    return;
+  }
+  cornered = '';
+  cornering = false;
+  if (jump) {
+    // his own idea: a leap onto the window he is after
+    away = walking = returning = goingToBed = stalking = false;
+    setFx('fly', 0);
+    say(pick(['Hup!', '*leaps*', 'Incoming!', 'Geronimo!']), 1200);
+    return;
+  }
   touch();
-  away = walking = returning = goingToBed = false; // it may have walked off the edge of a window
+  away = walking = returning = goingToBed = stalking = false; // it may have walked off the edge of a window
   if (speed > 18) {
     tally('throws');
     if (mood !== 'joyful') bump('fear', 0.3);
@@ -3294,9 +4477,22 @@ window.buddy.onBounce(() => {
   say(pick(['Boing!', 'Oof!', 'Ow!', 'Bonk!', 'Bounce!', 'Ouch-ish!']), 1200);
 });
 
-window.buddy.onLanded(({ impact, placed, perch }) => {
+window.buddy.onLanded(({ impact, placed, perch, jump, down }) => {
   if (dragging) return; // caught again before it settled
   perched = !!perch;
+  if (down) {
+    // down on the floor: the rest of the way is on foot
+    sfx('bounce');
+    setFx(walking ? 'walk' : '', 0);
+    return;
+  }
+  if (jump) {
+    // he meant to: no stars, and what he says next is about the window
+    sfx('bounce');
+    setFx('land', 400);
+    if (perch) tally('perches');
+    return;
+  }
   if (!placed) sfx('bounce');
   if (placed) {
     setFx('land', 400);
@@ -3389,6 +4585,7 @@ function feed(name, text, size) {
   day.snacks++;
   store('buddy-day', day);
   const stuffed = feel.hunger < 0.08;
+  const needed = feel.hunger > 0.6 || feel.hurt > 0.3; // it came just when he needed it
   bump('hunger', -portion(name ? size : text.length));
   if (stuffed) {
     bump('joy', -0.05);
@@ -3403,7 +4600,14 @@ function feed(name, text, size) {
   bump('irritation', -0.2);
   bump('hurt', -0.3); // a snack is an apology it understands
   did('snack');
+  if (needed) bump('thanks', 0.8);
   lastFed = Date.now();
+  if (life.wish) {
+    const wished = life.wish;
+    life.wish = '';
+    bump('love', 0.3);
+    setTimeout(() => say(`Is this ${wished}? …It tastes like a file. I love it anyway.`, 4500), 4200);
+  }
   const kind = ((/\.([a-z0-9]{1,8})$/i.exec(name || '') || [])[1] || (name ? 'file' : 'text')).toLowerCase();
   life.stats.kinds = Array.isArray(life.stats.kinds) ? life.stats.kinds : [];
   if (!life.stats.kinds.includes(kind) && life.stats.kinds.length < 200) life.stats.kinds.push(kind);
@@ -3510,29 +4714,33 @@ window.buddy.onCursor(({ x, y, sx, sy }) => {
     cur.sx = sx;
     cur.sy = sy;
     cur.movedAt = now;
+    if (roaming) stopRoam(); // caught on the wrong side of the screen
   }
   cur.dx = x - (r.left + r.width / 2);
   cur.dy = y - (r.top + r.height / 2);
   cur.dist = Math.hypot(cur.dx, cur.dy) || 1;
+  // shy: once you come close he cannot hold your eye, and edges back a little
+  const bashful = trait('shy') && cur.dist < 230 && state === 'idle' && fx !== 'sleep';
   // lean toward the cursor when it is close
-  const lean = Math.max(-1, Math.min(1, cur.dx / 150)) * 7 * Math.max(0, 1 - cur.dist / 450) * (mood === 'grumpy' || mood === 'hurt' ? -1 : 1);
+  const lean = Math.max(-1, Math.min(1, cur.dx / 150)) * 7 * Math.max(0, 1 - cur.dist / 450) * (mood === 'grumpy' || mood === 'hurt' ? -1 : bashful ? -0.6 : 1);
   document.body.style.setProperty('--tilt', `${lean.toFixed(1)}deg`);
 
   const k = 200 / r.width; // CSS px -> SVG units
   const dx = (x - (r.left + r.width / 2)) * k;
   const dy = (y - (r.top + r.height * 0.45)) * k;
   const dist = Math.hypot(dx, dy) || 1;
-  const reach = Math.min(1, dist / 250);
-  const shy = mood === 'grumpy' ? -1 : 1; // sulking: looks pointedly away
+  const reach = bashful ? 1 : Math.min(1, dist / 250);
+  const shy = mood === 'grumpy' || bashful ? -1 : 1; // sulking: looks pointedly away
   document.body.style.setProperty('--lx', `${((dx / dist) * 6 * reach * shy).toFixed(1)}px`);
-  document.body.style.setProperty('--ly', `${((dy / dist) * 5 * reach * shy).toFixed(1)}px`);
+  document.body.style.setProperty('--ly', `${(bashful ? 4 : (dy / dist) * 5 * reach * shy).toFixed(1)}px`);
 
   // the cursor charging straight at it makes it flinch
   if (now - cur.wasAt > 90) {
     const rush = (cur.was - cur.dist) / (now - cur.wasAt); // px per ms, toward it
     // hurt, it flinches at much less, and backs away
     const sore = mood === 'hurt';
-    if (rush > (sore ? 1.2 : 3) && cur.dist < (sore ? 220 : 130) && !fx && !down && state === 'idle' && now - lastFlinch > (sore ? 4000 : 8000)) {
+    // the anxious one jumps at less; the wise one does not jump at all
+    if (rush > (sore ? 0.6 : trait('anxious') ? 1.8 : 3) && (sore || !trait('wise')) && cur.dist < (sore ? 300 : 130) && !fx && !down && state === 'idle' && now - lastFlinch > (sore ? 4000 : 8000)) {
       lastFlinch = now;
       bump('fear', 0.2);
       if (!sore || !backOff()) setFx('poke', 350);
@@ -3550,11 +4758,12 @@ window.buddy.onCursor(({ x, y, sx, sy }) => {
   // the box around the body counts too, so the gaps between its legs and arms don't let a
   // click or a dragged snack slip through
   const inBox = x > r.left + r.width * 0.1 && x < r.right - r.width * 0.1 && y > r.top + r.height * 0.22 && y < r.top + r.height * 0.84;
-  const hit = inBox || (!!el && (wrap.contains(el) || el === bubble || minis.contains(el) || el === noteEl || panel.contains(el) || signEl.contains(el) || visitorEl.contains(el)));
+  const hit = inBox || (!!el && (wrap.contains(el) || el === bubble || minis.contains(el) || palEl.contains(el) || el === noteEl || panel.contains(el) || signEl.contains(el) || visitorEl.contains(el)));
   if (hit !== hovering) {
     hovering = hit;
     window.buddy.ignoreMouse(!hit);
-    if (hit && !fx && mood !== 'grumpy' && mood !== 'hurt' && (state === 'idle' || state === 'thinking') && now - lastWave > 10000) {
+    if (trait('shy')) render(); // no wave from him: he blushes and fidgets
+    else if (hit && !fx && mood !== 'grumpy' && mood !== 'hurt' && (state === 'idle' || state === 'thinking') && now - lastWave > 10000) {
       lastWave = now;
       setFx('wave', 900);
     }
@@ -3642,13 +4851,47 @@ function goHome() {
   setFx('walk', 0);
 }
 
-window.buddy.onWalkDone(() => {
+window.buddy.onWalkDone((at) => {
   const fled = fleeing;
   fleeing = false;
-  if (!walking) return; // picked up mid-walk
+  if (!walking) { stalking = cornering = inching = false; return; } // picked up mid-walk
   walking = false;
+  if (inching) {
+    // a little nearer than he was
+    inching = false;
+    setFx('', 0);
+    return;
+  }
+  if (roaming) {
+    // somewhere new: a look round, then on again
+    setFx('', 0);
+    lastActivity = Date.now();
+    clearTimeout(roamTimer);
+    roamTimer = setTimeout(roamLeg, 2500 + Math.random() * 5000);
+    if (Math.random() < 0.4) say(pick(['*explores*', 'So much room!', 'Nobody\'s looking…', 'La la la…', 'Ooh, I\'ve never been up here.', 'Mine. Mine. Also mine.']), 2500);
+    return;
+  }
+  if (cornering) {
+    // in his corner: he sits down
+    cornering = false;
+    cornered = at && (at.corner === 'l' || at.corner === 'r') ? at.corner : '';
+    corneredAt = Date.now();
+    perched = false;
+    setFx('', 0);
+    return;
+  }
+  if (stalking) {
+    // got there: what he does next comes back from the main process
+    stalking = false;
+    awaySince = Date.now();
+    setFx('', 0);
+    return;
+  }
   if (goingToBed) {
     goingToBed = false;
+    cornered = '';
+    perched = false;
+    feel.homesick = 0;
     setFx('sleep', 0);
     nextDream = Date.now() + 20000 + Math.random() * 30000;
     return;
@@ -3672,7 +4915,16 @@ window.buddy.onSettings((s) => {
   typeAlong = s.typing !== false;
   remindersOn = s.reminders !== false;
   noticeOn = s.notice !== false;
+  musicOn = !!s.music;
+  pagesOn = !!s.pages;
+  if (!pagesOn) site = '';
+  if (!musicOn && tune) { clearTimeout(tuneGone); setTune(null); }
   autoQuiet = s.autoQuiet !== false;
+  meddleOn = !!s.meddle;
+  if (!meddleOn) { shoved = holdingPtr = false; pestered = 0; } // the main process has put everything back
+  if (!meddleOn && blocking) { blocking = 0; goHome(); }
+  if (!meddleOn && roaming) stopRoam(true);
+  palOn = !!s.pet;
   quietManual = !!s.quiet;
   persona = PERSONA[s.personality] ? s.personality : 'cheerful';
   applyConfig(s.config);
@@ -3821,6 +5073,43 @@ setInterval(() => {
   if (walking || fx || dragging || down || editingNote) return;
   if (focusUntil || quiet || rps) return; // focusing, in quiet mode or mid-game: no chatter, no wandering
 
+  // hurt: he takes himself off to a corner, and goes back there if he is moved
+  if (mood === 'hurt' && !cornered && wander && state === 'idle' && !chasing && !hiding && !guest && now > nextCorner) {
+    nextCorner = now + 8000;
+    goCorner();
+    if (now > hushUntil) say(pick(['*sniff*', '…I\'m going over there.', '*shuffles off*', 'Leave me alone.']), 2500);
+    return;
+  }
+  // a minute in the corner, and he starts to want company: he peeks out, and if the cursor
+  // is keeping still nearby he creeps towards it a little at a time
+  if (mood === 'hurt' && cornered && wander && state === 'idle' && now - corneredAt > 60000 && now > nextInch) {
+    const open = cornered === 'l' ? cur.dx > 0 : cur.dx < 0; // the cursor is on the side he can go
+    const gentle = still > 2500 && open && cur.dist < 560;
+    if (gentle && inched && cur.dist <= 160 && !comforted) {
+      // he made it all the way over
+      comforted = true;
+      nextInch = now + 20000;
+      bump('hurt', -0.3);
+      bump('love', 0.3);
+      bump('lonely', -0.4);
+      did('comfort');
+      setFx('pet', 2200);
+      say(pick(['…hi.', '…can I stay here a bit?', '*leans on the cursor*', '…I missed you.']), 3500);
+    } else if (gentle && cur.dist > 160 && inched < 8) {
+      nextInch = now + 5000;
+      inched++;
+      inching = walking = true;
+      setFx('walk', 0);
+      window.buddy.walk({ x: (cornered === 'l' ? 1 : -1) * 42 * inched, y: 0 });
+      if (inched === 1) say(pick(['…', '*shuffles a little closer*', '…okay.']), 2000);
+    } else if (!gentle) {
+      nextInch = now + 40000;
+      setFx('peer', 2000);
+      say(pick(['*peeks out*', '…are you still there?', '*sniff* …hello?', '*looks round, then back at the wall*']), 2500);
+    } else nextInch = now + 5000;
+    return;
+  }
+
   // friends get a nuzzle when the cursor just rests on it
   if (hovering && still > 2000 && state === 'idle' && bondLevel() >= 2 && mood !== 'grumpy' && mood !== 'hurt' && now - lastNuzzle > 60000) {
     lastNuzzle = now;
@@ -3841,9 +5130,15 @@ setInterval(() => {
     window.buddy.walk(gravity ? { x: Math.sign(cur.dx) * go, y: 0 } : { x: (cur.dx / cur.dist) * go, y: (cur.dy / cur.dist) * go });
     setFx('walk', 0);
     say(pick(['Ooh, what\'s over there?', 'Wait, what\'s that?', 'Hang on, I want to see.', 'I must investigate.', 'Be right back!', 'Something moved!']), 2500);
-  } else if (!upset && (state === 'idle' || state === 'thinking') && still > 1500 && still < 6000 && cur.dist > 90 && cur.dist < 300 && now - lastPeer > 40000) {
+  } else if (!upset && (state === 'idle' || state === 'thinking') && still > 1500 && still < 6000 && cur.dist > 90 && cur.dist < 300 && now - lastPeer > (trait('nerdy') ? 20000 : 40000)) {
     // the cursor is loitering close by: crane over for a look
     lastPeer = now;
+    if (trait('shy')) {
+      // too shy to stare: he finds something else to look at
+      setFx('look', 2400);
+      say(pick(['*pretends to study the taskbar*', '…nice wallpaper.', '*looks at his feet*', 'I wasn\'t looking. Promise.']), 2500);
+      return;
+    }
     setFx('peer', 2500);
     say(pick(['Whatcha got there?', 'Hmm? What\'s that?', 'Ooh, what are you clicking?', 'Is that for me?', 'Can I help? I can\'t. But can I?', 'That looks important.', 'Ooh, do that again.']), 2500);
   } else if (state === 'idle' && isMorning() && !day.greeted) {
@@ -3898,18 +5193,41 @@ setInterval(() => {
       setFx('wave', 900);
       sayChart(`Sunday recap! ${week.text}`, week.days, 14000);
     }
+  } else if (meddleOn && (mood === 'grumpy' || mood === 'jealous') && state !== 'alert' && !alertSession() && now > nextMeddle && now > hushUntil
+    && now - lastActivity > 15000 && now - Math.max(cur.movedAt, lastKey) < 60000) {
+    // cross or left out, and allowed to touch: he takes it out on the desktop
+    nextMeddle = now + 45000 + Math.random() * 45000;
+    // jealous, and the pointer has been resting on something: he goes and sits on it
+    meddle(mood === 'jealous' ? (still > 3000 && Math.random() < 0.4 ? 'block' : pick(['tug', 'hold', 'shove', 'shake', 'tow'])) : pick(['shove', 'shake', 'prints', 'tow']));
+  } else if (palOn && state === 'idle' && now > nextPalCare && now > hushUntil && now - lastActivity > 20000 && ['content', 'joyful', 'loving'].includes(mood)) {
+    // he has someone to look after, too
+    nextPalCare = now + (4 + Math.random() * 5) * 60000;
+    palHop();
+    say(pick(['*pats Pip*', 'Who\'s a good Pip? You are.', '*shares a crumb with Pip*', 'Pip, sit. …Pip doesn\'t sit. That\'s okay.', 'Pip found a pixel! Well done, Pip.', '*tucks Pip in a bit closer*']), 3000);
+  } else if (state === 'idle' && mood === 'mischievous' && now > nextPrank && now > hushUntil && !guest && !gift && !invite && !asking && now - lastActivity > 15000) {
+    nextPrank = now + 50000 + Math.random() * 40000;
+    prank();
   } else if (state === 'idle' && now > nextInit && now > hushUntil && !guest && !gift && !invite && !asking && !sleepy
     && now - lastActivity > 20000 && now - Math.max(cur.movedAt, lastKey) < 60000 && !['grumpy', 'hurt', 'scared'].includes(mood)) {
     // you are around and nothing is happening: its turn to start something
     nextInit = now + (10 + Math.random() * 10) * 60000;
     startSomething();
   } else if (state === 'idle' && now > nextHobby && now - lastActivity > 30000
-    && !['grumpy', 'scared', 'embarrassed', 'worried', 'hungry', 'lonely', 'jealous', 'glum', 'hurt'].includes(mood)) {
+    && !['grumpy', 'scared', 'embarrassed', 'worried', 'hungry', 'lonely', 'jealous', 'glum', 'hurt', 'homesick', 'focused', 'mischievous'].includes(mood)) {
     // nothing to do for a bit: time for a hobby
     nextHobby = now + 150000 + Math.random() * 150000;
     startHobby();
-  } else if (state === 'idle' && sleepy && now > nextYawn) {
-    nextYawn = now + 50000 + Math.random() * 60000;
+  } else if (state === 'idle' && mood === 'hungry' && now > nextRub && now > hushUntil) {
+    // hungry: he rubs his tummy, and sometimes says so
+    nextRub = now + 45000 + Math.random() * 45000;
+    setFx('rub', 2400);
+    if (Math.random() < 0.6) say(pick(ageIndex() > 0 ? MUSE.hungry : ['Num num?', 'Tummy…']), 3000);
+  } else if (state === 'idle' && !sleepy && now > nextManner && now > hushUntil && (mood === 'content' || mood === 'joyful') && now - lastActivity > 20000) {
+    // a habit of his own, whichever his personality runs to
+    nextManner = now + 90000 + Math.random() * 90000;
+    if (ageIndex() > 0) manner();
+  } else if (state === 'idle' && (sleepy || trait('sleepy')) && now > nextYawn) {
+    nextYawn = now + (sleepy ? 50000 : 150000) + Math.random() * 60000;
     setFx('yawn', 1800);
     sfx('yawn');
     say(pick(YAWNS), 2500);
@@ -3934,6 +5252,8 @@ setInterval(() => {
 // ---- emotions ----
 
 function bump(k, d) {
+  // his personality turns some feelings up and others down
+  if (d > 0 && trait(persona)) d *= (TEMPER[persona] || {})[k] || 1;
   feel[k] = Math.max(k === 'joy' ? -1 : 0, Math.min(1, feel[k] + d));
 }
 
@@ -3946,15 +5266,24 @@ function currentMood() {
   if (feel.fear > 0.6 - s('scared')) return 'scared';
   if (feel.irritation > 0.6 - s('grumpy')) return 'grumpy';
   if (feel.shame > 0.6 - s('embarrassed')) return 'embarrassed';
+  if (feel.relief > 0.6 - s('relieved')) return 'relieved';
+  if (feel.thanks > 0.6 - s('grateful')) return 'grateful';
+  if (feel.focus > 0.6 - s('focused')) return 'focused';
   if (feel.excite > 0.6 - s('excited')) return 'excited';
   if (feel.pride > 0.6 - s('proud')) return 'proud';
+  if (feel.smug > 0.6 - s('smug')) return 'smug';
   if (feel.love > 0.7 - s('loving')) return 'loving';
   if (feel.worry > 0.6 - s('worried')) return 'worried';
+  if (feel.curio > 0.6 - s('curious')) return 'curious';
   if (feel.energy < 0.25 + s('tired')) return 'tired';
   if (feel.hunger > 0.8 - s('hungry')) return 'hungry';
   if (feel.envy > 0.7 - s('jealous')) return 'jealous';
+  if (feel.homesick > 0.7 - s('homesick')) return 'homesick';
   if (feel.lonely > 0.7 - s('lonely')) return 'lonely';
+  // boredom with you right there and busy turns into mischief
+  if (feel.mischief > 0.7 - s('mischievous')) return 'mischievous';
   if (feel.boredom > 0.75 - s('bored')) return 'bored';
+  if (feel.nostalgia > 0.6 - s('nostalgic')) return 'nostalgic';
   if (feel.joy > 0.5 - s('joyful')) return 'joyful';
   if (feel.joy < -0.5 + s('glum')) return 'glum';
   return 'content';
@@ -3976,7 +5305,8 @@ function saveFeel() {
     bump('energy', gone / 600);
     bump('irritation', -gone / 250);
     bump('worry', -gone / 330);
-    for (const k of ['fear', 'shame', 'excite', 'pride', 'boredom', 'envy']) bump(k, -gone / 120);
+    for (const k of ['fear', 'shame', 'excite', 'pride', 'boredom', 'envy', 'curio', 'thanks', 'relief', 'nostalgia', 'mischief', 'focus', 'smug']) bump(k, -gone / 120);
+    bump('homesick', -gone / 600);
     bump('love', -gone / 900);
     bump('hurt', -gone / 3600);
   }
@@ -3998,6 +5328,11 @@ setInterval(() => {
   bump('excite', -0.006);
   bump('pride', -0.004);
   bump('love', -0.0035);
+  bump('curio', -0.006);
+  bump('thanks', -0.007);
+  bump('relief', -0.008);
+  bump('nostalgia', -0.004);
+  bump('smug', -0.005);
   // slow to fade by itself: sleep helps, a pet or a snack helps far more
   bump('hurt', asleep ? -0.002 : -0.0005);
   // waiting around is boring: on you to answer Claude, or on a command that will not end
@@ -4005,6 +5340,14 @@ setInterval(() => {
   // you are busy at the keyboard and have had no time for it in ages
   const typing = Date.now() - lastKey < 30000;
   bump('envy', !asleep && typing && Date.now() - lastTouched > 10 * 60000 && Date.now() - lastActivity > 5 * 60000 ? 1 / 420 : -0.005);
+  // bored, or left out with you right there: he starts getting ideas
+  const around = Date.now() - Math.max(cur.movedAt, lastKey) < 60000;
+  const idleHands = !asleep && !busy && around && (mood === 'bored' || (Date.now() - lastTouched > 12 * 60000 && Date.now() - lastActivity > 3 * 60000));
+  bump('mischief', idleHands && !quiet && !focusUntil ? (mood === 'bored' ? 1 / 90 : 1 / 480) : -0.004);
+  // the focus timer, or a long spell of Claude working while you type along
+  bump('focus', asleep ? -0.05 : focusUntil ? 1 / 400 : busy && typing ? 1 / 900 : -0.01);
+  // up on somebody else's window for a long time: he starts to miss the floor and his bed
+  bump('homesick', perched && !asleep ? 1 / 1400 : -0.02);
   bump('lonely', asleep ? 0 : 1 / (Math.max(1, CFG.lonelyMinutes) * 60));
   bump('hunger', asleep ? 0 : (lunchtime ? 3 : 1) / (Math.max(1, CFG.hungerMinutes) * 60));
   // work is tiring, staying up late is tiring, sleep and quiet daytime restore it
@@ -4016,6 +5359,17 @@ setInterval(() => {
     render();
     if (!fx && state === 'idle') say(night ? '*yawn* It\'s getting late…' : 'Morning already?', 3000);
   }
+
+  // sitting on your page and getting nothing for it: he gives up after a while
+  if (blocking && Date.now() - blocking > 75000) {
+    say(pick(['Fine. I\'m going.', 'Hmph. Not even a pat.']), 2500);
+    unblock();
+  }
+  // nobody has touched anything in ten minutes: he wakes up and goes exploring
+  if (!roaming && meddleOn && wander && Date.now() - Math.max(cur.movedAt, lastKey) > 10 * 60000 && Date.now() - roamedAt > 30 * 60000
+    && state === 'idle' && (!fx || fx === 'sleep') && !quiet && !walking && !away && !night && !cornered && !blocking && !holdingPtr
+    && !guest && !gift && !dragging && !goingToBed && !chasing && !hiding && mood !== 'hurt' && mood !== 'tired') startRoam();
+  palFollow();
 
   const next = currentMood();
   if (next !== mood) {
@@ -4034,6 +5388,7 @@ setInterval(() => {
       }
       saveLife();
     }
+    if (['grateful', 'smug', 'homesick', 'nostalgic'].includes(next)) did(next);
     render();
     if (!fx && (state === 'idle' || state === 'thinking') && Date.now() > hushUntil) {
       if (MOOD_ARRIVES[next]) say(pick(MOOD_ARRIVES[next]), 3500);
@@ -4044,6 +5399,25 @@ setInterval(() => {
       else if (prev === 'scared') say('Okay… okay. I\'m alright.', 2500);
       else if (prev === 'jealous') say('…fine. We\'re good.', 2500);
       else if (prev === 'embarrassed') say('Right. Moving on.', 2500);
+      else if (prev === 'homesick') say('Ahh. That\'s better.', 2500);
+      else if (prev === 'mischievous') say('…I\'ll be good now. Probably.', 2500);
+    }
+    if (prev === 'hurt' && (cornered || cornering)) leaveCorner();
+    if (blocking && next !== 'jealous') unblock();
+    if (next === 'jealous') {
+      // what was in front when he got left out: it adds up over the week (see grudge)
+      const at = withRival() ? 'ai' : presence.app;
+      if (at && at !== 'claude') { life.week.envy[at] = (life.week.envy[at] || 0) + 1; saveLife(); }
+    }
+    if (pestered && !['grumpy', 'jealous', 'mischievous'].includes(next)) {
+      if (pestered >= 2) setTimeout(sorry, 7000);
+      pestered = 0;
+    }
+    if (shoved && next !== 'grumpy' && next !== 'jealous') {
+      // calmed down: whatever he shoved goes back where it was
+      shoved = false;
+      window.buddy.meddle('back');
+      if (!fx && Date.now() > hushUntil) say(pick(['…I put your window back.', 'Fine. Your window\'s back where it was.']), 3000);
     }
   }
   applyQuiet(); // quiet hours start and end on the clock
@@ -4102,7 +5476,7 @@ setInterval(() => {
     }
     return;
   }
-  const patience = (mood === 'tired' || isNight() ? CFG.sleepAfterSecSleepy : CFG.sleepAfterSec) * 1000;
+  const patience = (mood === 'tired' || isNight() || trait('sleepy') ? CFG.sleepAfterSecSleepy : CFG.sleepAfterSec) * 1000;
   if (now - lastActivity < patience) bedTried = false;
   // someone typing nearby keeps it up
   if (state === 'idle' && !fx && !away && !chasing && !walking && !focusUntil && !editingNote && !rps && !asking && now - lastActivity > patience && now - lastKey > 30000) {
@@ -4137,6 +5511,7 @@ applySeason();
 showNote();
 recordDay();
 if (unwritten) writeDiary();
+rollWeek(true);
 showEgg();
 saveFeel();
 setState('idle');

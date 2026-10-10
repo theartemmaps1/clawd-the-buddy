@@ -82,7 +82,8 @@
 
   /* the stronger feelings get a mouth, and eyes of their own */
   .face { fill: #1f1410; }
-  .face, .tear, .eye-shine, .eye-heart, .mark, .sparkle, .note-fx, .drop { opacity: 0; }
+  .face, .tear, .eye-shine, .eye-heart, .mark, .sparkle, .note-fx, .drop, .tongue { opacity: 0; }
+  .tongue { fill: #ff7a9a; }
   .face, .eye-shine, .eye-heart { transition: opacity .3s; }
   .eye-shine { fill: #fff; translate: var(--lx, 0px) var(--ly, 0px); }
   .eye-heart { fill: #ff5a7a; }
@@ -128,6 +129,42 @@
   .mood-hurt.idle #wrap     { animation-duration: 5s; }
   .mood-hurt .arm           { transform: translateY(8px); }
   .mood-hurt .eye           { animation: none; transform: translateY(5px) scaleY(.7); }
+  /* curious: head on one side, one eye wide */
+  .mood-curious #wrap       { rotate: 7deg; }
+  .mood-curious .eye        { animation: none; }
+  .mood-curious .eye + .eye { transform: scaleY(1.35); }
+  .mood-curious .mark-q, .mood-curious .eye-shine { opacity: 1; }
+  /* grateful: shining eyes and a little bow, over and over */
+  .mood-grateful #wrap      { animation: bow 2.6s ease-in-out infinite; }
+  .mood-grateful .eye-shine, .mood-grateful .m-smile { opacity: 1; }
+  .mood-grateful .blush     { opacity: .6; }
+  /* relieved: slumped, eyes half shut, the last drop of sweat sliding off */
+  .mood-relieved #wrap      { scale: 1.03 .97; }
+  .mood-relieved .lid, .mood-relieved .m-smile { opacity: 1; }
+  .mood-relieved.idle #wrap { animation-duration: 4.5s; }
+  .mood-relieved #sweat     { animation: drip 2.2s ease-in infinite; }
+  /* nostalgic and homesick: far away, with a picture of what he is thinking of */
+  .mood-nostalgic .lid, .mood-nostalgic .m-smile { opacity: 1; }
+  .mood-nostalgic .skin     { filter: sepia(.3); }
+  .mood-nostalgic.idle #wrap, .mood-homesick.idle #wrap { animation-duration: 5s; }
+  .mood-homesick .brow-sad, .mood-homesick .m-frown { opacity: 1; }
+  .mood-homesick .eye       { animation: none; transform: translateY(4px); }
+  .mood-homesick .skin      { filter: saturate(.75); }
+  .mood-nostalgic .dream, .mood-homesick .dream { opacity: 1; }
+  .mood-nostalgic .d-photo, .mood-homesick .d-home { display: block; }
+  /* mischievous: sly eyes going from side to side, and a smirk */
+  .mood-mischievous .brow-angry { opacity: .85; }
+  .mood-mischievous .lid, .mood-mischievous .m-smirk { opacity: 1; }
+  .mood-mischievous .eye    { animation: glance 3s ease-in-out infinite; }
+  /* focused: narrowed eyes, tongue out at the corner */
+  .mood-focused #wrap       { animation: none; }
+  .mood-focused .eye        { animation: none; transform: scaleY(.6); }
+  .mood-focused .brow-angry { opacity: .55; }
+  .mood-focused .m-flat     { opacity: 1; }
+  .mood-focused .tongue     { opacity: 1; translate: 9px 0; }
+  /* smug: one eyebrow up */
+  .mood-smug #wrap          { scale: 1.04; }
+  .mood-smug .brow-up, .mood-smug .lid, .mood-smug .m-smirk { opacity: 1; }
   .cry .tear                { animation: drip 1.1s linear infinite; }
   .cry .tear + .tear        { animation-delay: .5s; }
 
@@ -167,10 +204,16 @@
   .fx-dance .eye-happy { opacity: 1; }
   .fx-dance .note-fx, body[data-hobby="hum"] .note-fx { animation: float 1.4s ease-out infinite; }
   .fx-dance .note-fx + .note-fx, body[data-hobby="hum"] .note-fx + .note-fx { animation-delay: .7s; }
+  /* something is playing: a note drifts up now and then */
+  body[data-tune="1"] .note-fx { animation: float 2.8s ease-out infinite; }
+  body[data-tune="1"] .note-fx + .note-fx { animation-delay: 1.4s; }
   /* sitting: for the sit trick, and while knitting through a long command */
-  .fx-sit #wrap, body[data-wait="knit"] #wrap { animation: none; transform: translateY(18px); }
-  .fx-sit .legA, .fx-sit .legB, body[data-wait="knit"] .legA, body[data-wait="knit"] .legB { animation: none; transform-origin: top; transform: scaleY(.4); }
-  .fx-sit .shadow, body[data-wait="knit"] .shadow { transform: translateY(-18px); }
+  .fx-sit #wrap, body[data-wait="knit"] #wrap, .cornered #wrap { animation: none; transform: translateY(18px); }
+  .fx-sit .legA, .fx-sit .legB, body[data-wait="knit"] .legA, body[data-wait="knit"] .legB, .cornered .legA, .cornered .legB { animation: none; transform-origin: top; transform: scaleY(.4); }
+  .fx-sit .shadow, body[data-wait="knit"] .shadow, .cornered .shadow { transform: translateY(-18px); }
+  /* hurt, sitting in his corner: huddled down and leaning into the wall */
+  .cornered[data-corner="l"] #wrap { rotate: -5deg; }
+  .cornered[data-corner="r"] #wrap { rotate: 5deg; }
   .fx-hide #wrap { animation: none; }
   .fx-hide .eye  { animation: none; transform: scaleY(1.3); }
 
@@ -363,6 +406,14 @@
   .fx-pet .eye    { opacity: 0; }
   .fx-pet .eye-happy { opacity: 1; }
   .fx-pet #heart  { animation: float 1.1s ease-out 2; }
+  /* petted while already smiling or blushing: that stays, only the eyes change */
+  .kept-loving .m-smile, .kept-joyful .m-smile, .kept-proud .m-smile,
+  .kept-grateful .m-smile, .kept-relieved .m-smile, .kept-nostalgic .m-smile { opacity: 1; }
+  .kept-loving .blush { opacity: .9; }
+  .kept-grateful .blush { opacity: .6; }
+  .kept-joyful .blush { opacity: .85; }
+  .kept-excited .blush { opacity: .7; }
+  .kept-embarrassed .blush { opacity: 1; }
 
   /* a hug for you, when your day is going badly */
   .fx-hug #wrap   { animation: bob .8s ease-in-out infinite; scale: 1.06; }
@@ -385,6 +436,69 @@
   .fx-eyeroll .eye    { animation: eyeroll .9s ease-in-out; translate: 0 0; }
   .fx-eyeroll .lid    { opacity: 0; }
   .fx-eyeroll .m-flat { opacity: 1; }
+
+  /* a prank: one eye shut and the tongue out */
+  .fx-tease #wrap { animation: wiggle .25s ease-in-out 6; }
+  .fx-tease .eye  { animation: none; }
+  .fx-tease .eye + .eye { transform: scaleY(.15); }
+  .fx-tease .m-smile { opacity: 1; }
+  .fx-tease .tongue { opacity: 1; translate: 0 4px; }
+  .fx-tease .lid  { opacity: 0; }
+
+  /* ---- personalities: how each one carries himself ---- */
+  /* data-persona is on the whole time; data-manner only while no reaction or mood has his face */
+  .fingers { display: none; filter: brightness(.78); }
+  .fingers rect { fill: var(--skin, #d97757); transform-box: fill-box; }
+  body[data-fidget="1"] .fingers, .fx-fidget .fingers { display: block; }
+  body[data-fidget="1"] .arm, .fx-fidget .arm { visibility: hidden; }
+  body[data-fidget="1"] .fingers rect, .fx-fidget .fingers rect { animation: tapL .5s ease-in-out infinite; }
+  body[data-fidget="1"] .fingers rect + rect, .fx-fidget .fingers rect + rect { animation-name: tapR; }
+  .fx-fidget .lid { opacity: 0; }
+  /* hungry: a hand going round and round on his tummy */
+  .belly { display: none; filter: brightness(.78); }
+  .belly rect { fill: var(--skin, #d97757); transform-box: fill-box; }
+  .fx-rub .belly { display: block; }
+  .fx-rub .belly rect { animation: rub .8s linear infinite; }
+  .fx-rub .armR { visibility: hidden; }
+  .fx-rub .eye { animation: none; transform: translateY(5px); }
+
+  /* shy: blushes when looked at or touched, eyes on the floor, fingers tapping together */
+  body[data-persona="shy"][data-fidget="1"] .blush, body[data-persona="shy"].fx-fidget .blush,
+  body[data-persona="shy"].fx-poke .blush, body[data-persona="shy"].fx-held .blush, body[data-persona="shy"].fx-wave .blush { opacity: .9; }
+  body[data-persona="shy"].fx-fidget .eye { animation: none; transform: translate(-5px, 6px); translate: 0 0; }
+  body[data-persona="shy"][data-fidget="1"] #wrap, body[data-persona="shy"].fx-fidget #wrap { scale: .96; }
+  /* anxious: eyes darting while Claude thinks, hands wringing, a bead of sweat */
+  body[data-persona="anxious"][data-fidget="1"] .eye, body[data-persona="anxious"].fx-fidget .eye { animation: glance 1.2s ease-in-out infinite; transform: none; }
+  body[data-persona="anxious"][data-fidget="1"] .fingers rect, body[data-persona="anxious"].fx-fidget .fingers rect { animation-duration: .25s; }
+  body[data-persona="anxious"].fx-fidget #sweat, body[data-persona="anxious"][data-fidget="1"] #sweat { opacity: .8; }
+  body[data-persona="anxious"].fx-fidget .m-wavy { opacity: 1; }
+  /* sleepy: eyes never quite open, everything slower; now and then his head drops */
+  body[data-manner="sleepy"] .lid { opacity: 1; }
+  body[data-manner="sleepy"].idle #wrap { animation-duration: 5s; }
+  .fx-nod #wrap   { animation: nod 2.4s ease-in-out; }
+  .fx-nod .eye    { animation: doze 2.4s ease-in-out; }
+  .fx-nod .lid    { opacity: 1; }
+  /* wise: unhurried; shuts his eyes to think a thing over */
+  body[data-manner="wise"].idle #wrap { animation-duration: 4.2s; }
+  .fx-ponder #wrap { animation: bob 3.2s ease-in-out; }
+  .fx-ponder .eye { animation: none; transform: scaleY(.15); }
+  .fx-ponder .m-flat { opacity: 1; }
+  .fx-ponder .lid { opacity: 0; }
+  body.fx-ponder .dots rect { animation: dot 1.5s ease-in-out infinite; }
+  body.fx-ponder .dots rect:nth-child(2) { animation-delay: .25s; }
+  body.fx-ponder .dots rect:nth-child(3) { animation-delay: .5s; }
+  /* nerdy: leans in to inspect whatever he is looking at */
+  body[data-persona="nerdy"].fx-peer .eye-shine { opacity: 1; }
+  body[data-manner="nerdy"].thinking .eye { transform: translate(5px,-5px) scaleY(1.15); }
+  /* sarcastic: deadpan */
+  body[data-manner="sarcastic"].idle .lid { opacity: .85; }
+  body[data-manner="sarcastic"].idle .m-flat { opacity: 1; }
+  /* dramatic: everything is bigger; a failure is a tragedy */
+  body[data-persona="dramatic"].happy #wrap { scale: 1.08; }
+  body[data-persona="dramatic"].sad .tear { animation: drip 1.1s linear infinite; }
+  body[data-persona="dramatic"].sad .tear + .tear { animation-delay: .5s; }
+  body[data-persona="dramatic"].sad .arm { transform: translateY(-22px); }
+  body[data-persona="dramatic"].fx-poke .mark-bang { opacity: 1; }
 
   .fx-spin #wrap  { transform-origin: 100px 110px; animation: flip .7s ease-in-out; }
   .fx-spin .eye   { opacity: 0; }
@@ -428,6 +542,29 @@
   body[data-prop="hardhat"] .prop-hardhat, body[data-prop="globe"] .prop-globe { display: block; }
   body[data-prop="hardhat"] .hat { display: none; } /* safety first */
   .fx-sleep .prop, .fx-fly .prop { display: none !important; }
+
+  /* ---- Pip, a pet of his own: the same feelings as Clawd, a few seconds late ---- */
+  #pal { position: absolute; right: 10px; bottom: 30px; width: 30px; height: 27px; display: none; cursor: pointer; }
+  .pal #pal { display: block; }
+  .quiet #pal { display: none; }
+  #pal svg { width: 30px; height: 27px; display: block; shape-rendering: crispEdges; overflow: visible; animation: palbob 2.4s ease-in-out infinite; }
+  .pal-body { fill: #8fb8de; }
+  .pal-foot { fill: #6c95bb; }
+  .pal-eye  { fill: #1d2433; transform-box: fill-box; transform-origin: center; }
+  .pal-tear { fill: #bfe3ff; display: none; }
+  body[data-pal="up"] #pal svg     { animation: palhop .45s ease-out infinite; }
+  body[data-pal="down"] #pal svg   { animation: none; transform: translateY(2px); filter: saturate(.45); }
+  body[data-pal="down"] .pal-tear  { display: block; }
+  body[data-pal="cross"] #pal svg  { animation: none; transform: scaleX(-1) rotate(-6deg); }
+  body[data-pal="cross"] .pal-eye  { transform: scaleY(.5); }
+  body[data-pal="jumpy"] #pal svg  { animation: shiver .15s linear infinite; }
+  body[data-pal="asleep"] #pal svg { animation: palbob 4.5s ease-in-out infinite; }
+  body[data-pal="asleep"] .pal-eye { transform: scaleY(.2); }
+  #pal.hop svg { animation: palhop .3s ease-out 3 !important; }
+  @keyframes palbob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-1.5px) } }
+  @keyframes palhop { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-7px) } }
+  /* he has the pointer behind his back: it cannot be seen while it is over him */
+  body.holding, body.holding * { cursor: none !important; }
 
   /* ---- one mini per Claude session, when there is more than one ---- */
   #minis { position: absolute; left: 6px; bottom: 34px; display: flex; flex-direction: column-reverse; gap: 5px; }
@@ -474,6 +611,12 @@
   @keyframes popout   { from { opacity: 0; transform: translate(-70px, 10px) scale(.2) } to { opacity: 1; transform: translate(0, 0) scale(1) } }
   @keyframes popin    { to { opacity: 0; transform: translate(-70px, 10px) scale(.2) } }
   @keyframes knock    { 0%,100% { scale: 1 } 50% { scale: 1.12 } }
+  @keyframes bow      { 0%,55%,100% { transform: scale(1,1) } 75% { transform: scale(1.05,.84) } }
+  @keyframes tapL     { 0%,100% { transform: translateX(0) } 50% { transform: translateX(5px) } }
+  @keyframes rub      { 0%,100% { transform: translate(-7px,0) } 25% { transform: translate(0,-5px) } 50% { transform: translate(7px,0) } 75% { transform: translate(0,5px) } }
+  @keyframes tapR     { 0%,100% { transform: translateX(0) } 50% { transform: translateX(-5px) } }
+  @keyframes nod      { 0%,100% { transform: translateY(0) rotate(0) } 60% { transform: translateY(7px) rotate(6deg) } 70% { transform: translateY(-6px) rotate(0) } 80% { transform: translateY(0) rotate(0) } }
+  @keyframes doze     { 0% { transform: scaleY(1) } 30%,62% { transform: scaleY(.1) } 70%,100% { transform: scaleY(1.3) } }
   @keyframes eyeroll  { 0%,100% { transform: translate(0,0) } 25% { transform: translate(-6px,-5px) } 50% { transform: translate(0,-8px) } 75% { transform: translate(6px,-5px) } }
   @keyframes shiver   { 0%,100% { transform: translateX(-2px) } 50% { transform: translateX(2px) } }
   @keyframes headshake { 0%,100% { transform: rotate(-7deg) } 50% { transform: rotate(7deg) } }
@@ -523,6 +666,12 @@
   <input id="noteInput" maxlength="80" spellcheck="false" />
   <div id="helpers"></div>
   <div id="visitor"></div>
+  <div id="pal" title="Pip"><svg viewBox="0 0 10 9">
+    <rect class="pal-body" x="2" y="1" width="6" height="7" /><rect class="pal-body" x="1" y="2" width="8" height="5" />
+    <rect class="pal-eye" x="3" y="3" width="1" height="2" /><rect class="pal-eye" x="6" y="3" width="1" height="2" />
+    <rect class="pal-tear" x="3" y="5" width="1" height="1" />
+    <rect class="pal-foot" x="2" y="8" width="2" height="1" /><rect class="pal-foot" x="6" y="8" width="2" height="1" />
+  </svg></div>
   <div id="bubble"></div>
   <div id="sign" title="Click to go to Claude"></div>
   <div id="panel"></div>
@@ -550,6 +699,7 @@
         <rect x="62" y="72" width="10" height="5" /><rect x="72" y="67" width="10" height="5" />
         <rect x="118" y="67" width="10" height="5" /><rect x="128" y="72" width="10" height="5" />
       </g>
+      <g class="brow brow-up"><rect x="62" y="71" width="20" height="5" /><rect x="116" y="63" width="22" height="5" /></g>
       <rect class="blush" x="52" y="104" width="15" height="6" /><rect class="blush" x="133" y="104" width="15" height="6" />
       <g class="eye-happy">
         <rect x="60" y="90" width="10" height="10" /><rect x="70" y="80" width="10" height="10" /><rect x="80" y="90" width="10" height="10" />
@@ -562,6 +712,8 @@
       <rect class="face m-o ghost" x="95" y="102" width="10" height="9" />
       <rect class="face m-flat ghost" x="92" y="106" width="16" height="4" />
       <g class="face m-wavy ghost"><rect x="88" y="107" width="6" height="4" /><rect x="94" y="103" width="6" height="4" /><rect x="100" y="107" width="6" height="4" /><rect x="106" y="103" width="6" height="4" /></g>
+      <g class="face m-smirk ghost"><rect x="91" y="107" width="15" height="4" /><rect x="106" y="103" width="4" height="4" /></g>
+      <rect class="tongue ghost" x="96" y="108" width="8" height="8" />
       <g class="eye-shine ghost"><rect x="70" y="80" width="5" height="6" /><rect x="120" y="80" width="5" height="6" /></g>
       <g class="eye-heart ghost">
         <rect x="67" y="82" width="6" height="6" /><rect x="77" y="82" width="6" height="6" /><rect x="67" y="86" width="16" height="6" /><rect x="70" y="92" width="10" height="4" /><rect x="73" y="96" width="4" height="3" />
@@ -719,9 +871,13 @@
         <g class="dream-i d-snack"><rect x="157" y="10" width="20" height="20" fill="#c98a4a" /><rect x="161" y="14" width="4" height="4" fill="#5a3414" /><rect x="170" y="18" width="4" height="4" fill="#5a3414" /><rect x="163" y="23" width="4" height="4" fill="#5a3414" /></g>
         <g class="dream-i d-ball"><rect x="157" y="10" width="20" height="20" fill="#e0483c" /><rect x="157" y="18" width="20" height="4" fill="#fff" /></g>
         <g class="dream-i d-globe"><rect x="157" y="10" width="20" height="20" fill="#4aa3df" /><rect x="160" y="13" width="8" height="6" fill="#58c064" /><rect x="168" y="20" width="7" height="7" fill="#58c064" /></g>
+        <g class="dream-i d-home"><rect x="161" y="8" width="12" height="5" fill="#d9423a" /><rect x="156" y="13" width="22" height="6" fill="#d9423a" /><rect x="158" y="19" width="18" height="14" fill="#e8c9a0" /><rect x="164" y="24" width="6" height="9" fill="#8a5a2b" /></g>
+        <g class="dream-i d-photo"><rect x="155" y="7" width="24" height="28" fill="#cfd3da" /><rect x="158" y="10" width="18" height="16" fill="#9fd3f0" /><rect x="163" y="16" width="8" height="7" fill="#d97757" /><rect x="158" y="23" width="18" height="3" fill="#58c064" /></g>
         <g class="dream-i d-heart" fill="#ff5a7a"><rect x="158" y="10" width="7" height="5" /><rect x="169" y="10" width="7" height="5" /><rect x="155" y="15" width="24" height="8" /><rect x="158" y="23" width="18" height="4" /><rect x="162" y="27" width="10" height="4" /><rect x="165" y="31" width="4" height="3" /></g>
       </g>
 
+      <g class="belly ghost"><rect x="93" y="112" width="14" height="11" /></g>
+      <g class="fingers ghost"><rect x="82" y="114" width="13" height="10" /><rect x="105" y="114" width="13" height="10" /></g>
       <g id="sweat" class="ghost"><rect x="170" y="50" width="10" height="10" /><rect x="170" y="60" width="10" height="10" /></g>
       <g class="ghost" transform="translate(150 20)"><g id="heart">
         <rect x="5" y="0" width="10" height="5" /><rect x="20" y="0" width="10" height="5" /><rect x="0" y="5" width="35" height="10" />
