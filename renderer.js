@@ -94,7 +94,7 @@ let sulkTurns = 0;
 let frontSince = 0;
 let fiveUntil = 0; // an arm is up for a high five until then
 let gift = null; // { g, until } while it is holding a present out
-let guest = null; // { f, step, timer } while a friend's buddy is visiting
+let guest = null; // { f, step, timer } while a friend's Clawd is visiting
 let editKind = 'note'; // what the text box is for: note | name | teach | invite
 let hushUntil = 0; // a big announcement is up: no idle thoughts or mood remarks over it
 let fleeing = false; // backing away from a cursor that hurt it
@@ -869,7 +869,7 @@ function comfort(why, tag = '') {
 // ---- achievements ----
 
 const BADGES = [
-  { id: 'liftoff', name: 'Liftoff', hint: 'throw it once' },
+  { id: 'liftoff', name: 'Liftoff', hint: 'throw him once' },
   { id: 'frequentflyer', name: 'Frequent flyer', hint: '25 throws' },
   { id: 'pokeaholic', name: 'Poke-a-holic', hint: '100 pokes' },
   { id: 'spinner', name: 'Round and round', hint: 'get dizzy 10 times' },
@@ -890,8 +890,8 @@ const BADGES = [
   { id: 'shipit', name: 'Ship it', hint: 'open a pull request' },
   { id: 'seeker', name: 'Found you', hint: 'win hide and seek 5 times' },
   { id: 'rpschamp', name: 'Good hands', hint: 'win 10 rounds of rock, paper, scissors' },
-  { id: 'showoff', name: 'Show-off', hint: 'teach it every trick' },
-  { id: 'favourite', name: 'Favourite food', hint: 'find out what it likes best' },
+  { id: 'showoff', name: 'Show-off', hint: 'teach him every trick' },
+  { id: 'favourite', name: 'Favourite food', hint: 'find out what he likes best' },
   { id: 'uptop', name: 'Up top', hint: '25 high fives' },
   { id: 'knitter', name: 'Knit wit', hint: 'knit 10 m of scarf' },
   { id: 'family', name: 'Next of kin', hint: 'hatch an egg' },
@@ -1008,7 +1008,7 @@ const voice = () => {
 
 // ---- lines built from what is actually going on ----
 
-const fileEdits = new Map(); // file name -> edits since the buddy started
+const fileEdits = new Map(); // file name -> edits since Clawd started
 
 function detailLine(e, s) {
   if (s.taskTools === 25) return '25 tool calls and counting. Big one!';
@@ -1154,12 +1154,12 @@ const EDITS = {
   },
   invite: {
     max: 28,
-    hint: 'Paste a friend\'s buddy code (it looks like BUD-1203-Pip).',
+    hint: 'Paste a friend\'s code (it looks like BUD-1203-Pip).',
     value: () => '',
     save(text) {
       if (!text) return;
       const f = parseCode(text);
-      if (!f) { say('That doesn\'t look like a buddy code. They look like BUD-1203-Pip.', 5000, true); return; }
+      if (!f) { say('That doesn\'t look like a friend\'s code. They look like BUD-1203-Pip.', 5000, true); return; }
       if (text === myCode()) { say('That\'s MY code! I can\'t visit myself. …can I?', 4000, true); return; }
       life.friends = life.friends.filter((x) => x.n !== f.n);
       life.friends.push(f);
@@ -1497,10 +1497,10 @@ function tellSecret(s) {
   }, 3300);
 }
 
-// ---- friends: other people's buddies, added by a short code, who drop in to visit ----
+// ---- friends: other people's Clawds, added by a short code, who drop in to visit ----
 
 const PERSONA_IDS = ['cheerful', 'sarcastic', 'shy', 'dramatic'];
-const codeName = (name) => (name || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16) || 'Buddy';
+const codeName = (name) => (name || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16) || 'Clawd';
 // BUD-<colour><hat><age><personality>-<name>: everything a friend's copy needs to draw this one
 const myCode = () => `BUD-${Math.max(0, COLORS.findIndex((c) => c.id === life.color))}${HATS.findIndex((h) => h.id === life.hat) + 1}${ageIndex()}${Math.max(0, PERSONA_IDS.indexOf(persona))}-${codeName(life.name)}`;
 
@@ -1930,7 +1930,7 @@ const foodOf = (name) => {
   const ext = ((/\.([a-z0-9]{1,8})$/i.exec(name || '') || [])[1] || '').toLowerCase();
   return FOODS.find((f) => f.exts.includes(ext)) || null;
 };
-// Everyone's buddy loves plain words and distrusts programs. Its one favourite is its own:
+// Every Clawd loves plain words and distrusts programs. His one favourite is his own:
 // picked once, and only found out by feeding it.
 if (!['code', 'pictures', 'music', 'config', 'web', 'video'].includes(life.fav)) {
   life.fav = ['code', 'pictures', 'music', 'config', 'web', 'video'][Math.floor(Math.random() * 6)];
@@ -3026,7 +3026,7 @@ let goneSince = 0; // when the mouse and keyboard went quiet, once that has last
 let lateHour = -1;
 
 // curiosity
-const cur = { sx: 0, sy: 0, dx: 0, dy: 0, dist: 9999, movedAt: Date.now(), was: 9999, wasAt: 0 }; // cursor, relative to the buddy
+const cur = { sx: 0, sy: 0, dx: 0, dy: 0, dist: 9999, movedAt: Date.now(), was: 9999, wasAt: 0 }; // cursor, relative to Clawd
 let wander = true;
 let gravity = true;
 let away = false; // off investigating, not at home
@@ -3462,7 +3462,7 @@ function feed(name, text, size) {
 }
 
 // While something is being dragged over the window, the whole window stays solid. Otherwise
-// the hopping buddy moves out from under the cursor, the window turns click-through again and
+// the hopping Clawd moves out from under the cursor, the window turns click-through again and
 // the drop lands on whatever is behind it.
 function overWithFood(e) {
   e.preventDefault();

@@ -1,4 +1,4 @@
-// The photo album: one card per milestone, newest first. Each card remembers what the buddy
+// The photo album: one card per milestone, newest first. Each card remembers what Clawd
 // was wearing that day. Two more pages hold its diary and the family tree.
 const COLORS = { classic: '#d97757', mint: '#5fbf9a', sky: '#5aa7e0', grape: '#9b6fd6', gold: '#e0b030' };
 const STAMPS = { first: '🌱', unlock: '🎁', streak: '🔥', bond: '♥', badge: '★', trick: '✦', food: '🍪', grow: '🌿', name: '✎', visit: '👋', bday: '🎂', gift: '💝', secret: '🤫', hurt: '🩹', scarf: '🧶', omen: '🔮', egg: '🥚', hatch: '🐣' };
@@ -109,7 +109,7 @@ for (const f of [...elders, { ...now, here: true }]) {
   const el = add(family, 'div', '', f.here ? 'kin now' : 'kin');
   el.appendChild(portrait({ color: f.c, hat: f.h }));
   const words = add(el, 'div');
-  add(words, 'b', `${String(f.n || '') || (f.here ? 'No name yet' : 'Buddy')} · generation ${Number(f.gen) || 1}`);
+  add(words, 'b', `${String(f.n || '') || (f.here ? 'No name yet' : 'Clawd')} · generation ${Number(f.gen) || 1}`);
   add(words, 'span', f.here ? `Born ${longDate(f.born)}. Here now.` : `${longDate(f.born)} to ${longDate(f.left)}. ${Number(f.tasks) || 0} tasks together.`);
 }
 const metres = (Number(more.scarf) || 0) / 600;

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-claude-buddy: an Electron desktop pet (transparent, always-on-top window) that reacts to Claude Code hook events POSTed to a local HTTP server. Plain JavaScript, HTML and CSS; Electron is the only dependency. There is no build step, bundler, linter, type checker or test suite.
+Clawd (package name `claude-buddy`): an Electron desktop pet (transparent, always-on-top window) that reacts to Claude Code hook events POSTed to a local HTTP server. Plain JavaScript, HTML and CSS; Electron is the only dependency. There is no build step, bundler, linter, type checker or test suite.
 
 ## Commands
 
@@ -78,5 +78,6 @@ These are promises the README makes to users:
 ## Conventions
 
 - The README (the sections from "While Claude works" to "Keeping track") documents every user-visible feature and config key; feature commits update it alongside the code (and `config.json` / `claude-settings-hooks.json` when a setting or hook event is added).
-- Comments are short, lower-case and written from the buddy's point of view ("it", not "the pet"); match that tone and the existing comment density.
+- The character is called Clawd and is a "he": use that in everything a user reads (README, menu labels, badge hints, anything said about him). Many older code comments still say "it" or "the buddy"; write new ones with "he" and "Clawd". Comments are short and lower-case; match the existing density.
+- Internal names keep "buddy" on purpose: `window.buddy`, the `buddy-*` IPC channels and memory keys, `BUDDY_PORT`, the `BUD-` friend codes and the package name. Renaming the package or the save files would move the userData folder and lose everyone's save.
 - The character is a fan-made drawing; the README's "unofficial fan project" disclaimer stays.

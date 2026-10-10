@@ -1,7 +1,7 @@
 {
   "name": "claude-buddy",
   "version": "0.1.0",
-  "description": "A tiny desktop companion that reacts to Claude Code hook events",
+  "description": "Clawd: a tiny desktop companion who reacts to Claude Code hook events",
   "main": "main.js",
   "license": "MIT",
   "scripts": {

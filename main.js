@@ -5,7 +5,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 
-// the buddy chirps without ever being clicked first
+// Clawd chirps without ever being clicked first
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 const PORT = Number(process.env.BUDDY_PORT || 8787);
@@ -27,9 +27,9 @@ const MAX_THROW = 70; // px per tick
 
 let win;
 let tray;
-let dragOffset = null; // cursor offset inside the window while the buddy is being carried
+let dragOffset = null; // cursor offset inside the window while Clawd is being carried
 let dragTrail = []; // recent cursor positions while carried, to work out a throw
-let home = null; // where the buddy lives; it wanders from here and comes back
+let home = null; // where Clawd lives; he wanders from here and comes back
 let walk = null; // { x, y, tx, ty } while it is scuttling somewhere on its own
 let fall = null; // { x, y, vx, vy, peak, bounces, ground } while it is in the air
 
@@ -256,7 +256,7 @@ const WATCH_CS = [
   'static readonly object Gate = new object();',
   'static void Say(string s) { lock (Gate) { Console.Out.WriteLine(s); Console.Out.Flush(); } }',
   // Input arrived and the pointer did not move: a key (or a click or the wheel). Only the
-  // moment is known, which is all the buddy needs to bob along.
+  // moment is known, which is all Clawd needs to bob along.
   'static void Keys() {',
   '  LASTINPUT li = new LASTINPUT(); li.cbSize = 8; uint last = 0; POINT was = new POINT();',
   '  while (true) {',
@@ -314,7 +314,7 @@ const WATCH_CS = [
   '} } }',
 ].join(' ');
 
-// The program in front, boiled down to a kind of activity. Only the kind reaches the buddy.
+// The program in front, boiled down to a kind of activity. Only the kind reaches Clawd.
 const APP_KINDS = [
   ['claude', /^claude$/i],
   ['editor', /^(code|code - insiders|cursor|windsurf|zed|devenv|idea64|pycharm64|webstorm64|rider64|clion64|goland64|sublime_text|notepad\+\+|notepad|gvim|nvim-qt|neovide)$/i],
@@ -439,7 +439,7 @@ function checkPerchEdge() {
   if (!p || cx < p.l || cx > p.r) dropFromPerch();
 }
 
-// Where a falling buddy would come to rest this tick: the floor, or a window top it just
+// Where a falling Clawd would come to rest this tick: the floor, or a window top it just
 // passed through on the way down.
 function groundFor(f, prevFeet, a) {
   const ground = { y: floorY(a), h: null, l: 0, t: 0 };
@@ -579,7 +579,7 @@ const ballState = () => (ball
   ? { exists: true, active: !ball.rest || Date.now() - ball.restSince < 4000, thrown: ball.thrown }
   : { exists: false, active: false, thrown: 0 });
 
-// Polls the cursor so the buddy can watch it anywhere on screen, and moves the windows while
+// Polls the cursor so Clawd can watch it anywhere on screen, and moves the windows while
 // things are being carried, walking, falling or bouncing.
 function trackCursor() {
   let last = '';
@@ -888,7 +888,7 @@ function openAlbum(tab = '') {
   albumWin = new BrowserWindow({
     width: 420,
     height: 560,
-    title: 'Buddy\'s photo album',
+    title: 'Clawd\'s photo album',
     autoHideMenuBar: true,
     backgroundColor: '#f6efe6',
     webPreferences: { preload: path.join(__dirname, 'album-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -920,7 +920,7 @@ ipcMain.on('album-more', (e) => {
 
 ipcMain.on('buddy-pomodoro-ended', () => { pomodoro = false; });
 
-// Opens the little text box over the buddy: for its note, its name, a phrase to teach it, or a
+// Opens the little text box over Clawd: for his note, his name, a phrase to teach him, or a
 // friend's code.
 function edit(kind) {
   if (!win || win.isDestroyed()) return;
@@ -1067,7 +1067,7 @@ ipcMain.on('buddy-wardrobe', (_e, w) => {
     friends: Array.isArray(w.friends) ? w.friends.slice(0, 8).map((n) => String(n).slice(0, 16)) : [],
     words: Number(w.words) || 0,
   };
-  if (tray) tray.setToolTip(who.name ? `${who.name} (Claude Buddy)` : 'Claude Buddy');
+  if (tray) tray.setToolTip(who.name || 'Clawd');
   tricks = Array.isArray(w.tricks) ? w.tricks.slice(0, 20).map((t) => ({ id: String(t.id).slice(0, 20), label: String(t.label).slice(0, 90), known: !!t.known })) : [];
 });
 
@@ -1119,12 +1119,12 @@ function buildMenu() {
     },
     { label: pomodoro ? 'Stop focus timer' : 'Start focus timer', click: () => { pomodoro = !pomodoro; send('buddy-pomodoro', pomodoro); } },
     { label: 'Leave a note…', click: () => edit('note') },
-    { label: who.name ? `Rename ${who.name}…` : 'Give it a name…', click: () => edit('name') },
+    { label: who.name ? `Rename ${who.name}…` : 'Give him a name…', click: () => edit('name') },
     {
-      label: 'Teach it',
+      label: 'Teach him',
       submenu: [
         { label: 'A new phrase…', click: () => edit('teach') },
-        { label: `Forget what I taught it (${who.words})`, enabled: who.words > 0, click: () => send('buddy-do', { what: 'forget-words' }) },
+        { label: `Forget what I taught him (${who.words})`, enabled: who.words > 0, click: () => send('buddy-do', { what: 'forget-words' }) },
       ],
     },
     {
@@ -1183,11 +1183,11 @@ function buildMenu() {
       checked: app.getLoginItemSettings(loginItem()).openAtLogin,
       click: (i) => app.setLoginItemSettings({ openAtLogin: i.checked, ...loginItem() }),
     },
-    { label: visible ? 'Hide buddy' : 'Show buddy', click: () => (visible ? win.hide() : win.showInactive()) },
+    { label: visible ? 'Hide Clawd' : 'Show Clawd', click: () => (visible ? win.hide() : win.showInactive()) },
     { type: 'separator' },
     { label: 'Reload config.json', click: () => { send('buddy-config-loaded', loadConfig()); sendSettings(); } },
     ...(dev && dev.menu ? [{ label: 'Dev', submenu: dev.menu() }] : []),
-    { label: 'Quit Buddy', click: quitNicely },
+    { label: 'Quit Clawd', click: quitNicely },
   ]);
 }
 
@@ -1216,7 +1216,7 @@ function trayImage() {
 
 function createTray() {
   tray = new Tray(trayImage());
-  tray.setToolTip('Claude Buddy');
+  tray.setToolTip('Clawd');
   const open = () => tray.popUpContextMenu(buildMenu());
   tray.on('click', open);
   tray.on('right-click', open);
@@ -1327,7 +1327,7 @@ function startServer() {
 
   // Loopback only: nothing on your network can poke the mascot
   server.listen(PORT, '127.0.0.1', () => {
-    console.log(`claude-buddy listening on http://127.0.0.1:${PORT}/event`);
+    console.log(`Clawd is listening on http://127.0.0.1:${PORT}/event`);
   });
   server.on('error', (e) => console.error('server error:', e.message));
 }
