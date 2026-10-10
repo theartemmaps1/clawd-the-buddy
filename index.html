@@ -16,7 +16,7 @@
   }
   #bubble.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
 
-  /* --size shrinks while it is young (and in quiet mode); the margin keeps its feet on the floor */
+  /* --size shrinks while he is young (and in quiet mode); the margin keeps his feet on the floor */
   #buddy { width: var(--size, 150px); height: var(--size, 150px); margin-bottom: calc((var(--size, 150px) - 150px) * .2); flex: none; overflow: visible; shape-rendering: crispEdges; cursor: grab; touch-action: none; }
   #buddy .ghost { pointer-events: none; }
   .skin { fill: var(--skin, #d97757); transition: fill .3s, filter .2s; }
@@ -235,7 +235,7 @@
   .steam { fill: #fff; animation: float 1.8s ease-out infinite; }
   .steam + .steam { animation-delay: .9s; }
 
-  /* plan mode: a pencil behind the ear, and a blueprint when its hands are free */
+  /* plan mode: a pencil behind the ear, and a blueprint when his hands are free */
   body[data-plan="1"] .pencil { display: block; }
   body[data-plan="1"].thinking:not([class*="fx-"]) .blueprint, body[data-plan="1"].idle:not([class*="fx-"]) .blueprint { display: block; }
 
@@ -284,7 +284,7 @@
   body.quiet { --size: 66px; }
   body.quiet[data-age="baby"] { --size: 50px; }
 
-  /* sulking: back turned, one eye peeking over the shoulder it is facing */
+  /* sulking: back turned, one eye peeking over the shoulder he is facing */
   .peek, .backseam { display: none; }
   .peek { fill: #1f1410; }
   .backseam { fill: rgba(0,0,0,.12); }
@@ -299,7 +299,7 @@
   body[data-five="1"] .five { display: block; animation: twinkle .5s ease-in-out infinite; }
   body[data-five="1"] .armR { transform-origin: left center; animation: wave .3s ease-in-out infinite; }
 
-  /* the sign it holds up when Claude asks permission */
+  /* the sign he holds up when Claude asks permission */
   #sign { display: none; position: relative; max-width: 190px; margin-bottom: 16px; padding: 5px 8px 6px; background: #fff6df; color: #3a2a10; border: 3px solid #8a5a2b; border-radius: 4px; font: 11px/1.3 Consolas, ui-monospace, monospace; word-break: break-all; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
   #sign.show { display: block; }
   #sign b { display: block; margin-bottom: 2px; font: bold 10px system-ui, sans-serif; color: #8a5a2b; }
@@ -357,7 +357,7 @@
   .night .santa, .fx-sleep .shades { display: none !important; }
   body[data-focus="1"] .hourglass { display: block; }
 
-  /* glasses from the wardrobe, or because it is getting on a bit; and the egg it keeps warm, which cracks and then rocks */
+  /* glasses from the wardrobe, or because he is getting on a bit; and the egg he keeps warm, which cracks and then rocks */
   .specs, .egg, .egg .crack { display: none; }
   .specs rect { fill: none; stroke: #5d4a3a; stroke-width: 3px; }
   body[data-old="1"] .specs, body[data-glasses="1"] .specs { display: block; }

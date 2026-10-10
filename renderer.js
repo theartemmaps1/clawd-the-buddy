@@ -7,10 +7,10 @@ let idleTimer, bubbleTimer, fxTimer;
 let activeTools = 0;
 let state = 'idle';
 let fx = ''; // short-lived reaction layered on top of the hook-driven state
-let prop = ''; // what it holds while Claude works: laptop, book, magnifier, hardhat, globe
+let prop = ''; // what he holds while Claude works: laptop, book, magnifier, hardhat, globe
 let lastActivity = Date.now();
 
-// Everything it remembers (tasks, streaks, feelings) is kept by the main process in a file,
+// Everything he remembers (tasks, streaks, feelings) is kept by the main process in a file,
 // which survives the app being killed. localStorage is only read to carry over older saves.
 const saved = window.buddy.saved || {};
 
@@ -53,7 +53,7 @@ const CFG = {
   eyeMinutes: 40,
   quietStart: 0, // quiet hours, e.g. 9 and 12; the same number twice = none
   quietEnd: 0,
-  growAt: [25, 150, 500], // finished tasks at which it becomes a kid, a teenager, a grown-up
+  growAt: [25, 150, 500], // finished tasks at which he becomes a kid, a teenager, a grown-up
   eggAt: 1500, // finished tasks in one lifetime before an egg turns up (0 = never)
 };
 
@@ -90,18 +90,18 @@ let planOn = false;
 let hobby = '';
 let dream = '';
 let dreamTimer;
-let hiding = 0; // hide and seek: when it hid (0 = not playing)
-let lastTouched = Date.now(); // the last time the user did something to it
+let hiding = 0; // hide and seek: when he hid (0 = not playing)
+let lastTouched = Date.now(); // the last time the user did something to him
 let lastKey = 0; // the last time a key was pressed anywhere (timing only)
-let sulk = ''; // grumpy with its back turned, facing 'l' or 'r'; 'front' once you have gone round to it
+let sulk = ''; // grumpy with his back turned, facing 'l' or 'r'; 'front' once you have gone round to him
 let sulkTurns = 0;
 let frontSince = 0;
 let fiveUntil = 0; // an arm is up for a high five until then
-let gift = null; // { g, until } while it is holding a present out
+let gift = null; // { g, until } while he is holding a present out
 let guest = null; // { f, step, timer } while a friend's Clawd is visiting
 let editKind = 'note'; // what the text box is for: note | name | teach | invite
 let hushUntil = 0; // a big announcement is up: no idle thoughts or mood remarks over it
-let fleeing = false; // backing away from a cursor that hurt it
+let fleeing = false; // backing away from a cursor that hurt him
 let cornered = ''; // hurt, and sitting in a corner of the screen: 'l' or 'r'
 let cornering = false; // on his way to one
 let nextCorner = 0;
@@ -123,19 +123,19 @@ let palNext = 'calm';
 let palTimer;
 let nextPalCare = Date.now() + 90000;
 let lastEnough = 0;
-let invite = null; // { kind, until } while it is asking you to play
-let asking = null; // the question it is waiting on an answer to
+let invite = null; // { kind, until } while he is asking you to play
+let asking = null; // the question he is waiting on an answer to
 let askTimer;
-let nextInit = Date.now() + (4 + Math.random() * 4) * 60000; // when it next starts something itself
+let nextInit = Date.now() + (4 + Math.random() * 4) * 60000; // when he next starts something himself
 let lastTap = 0;
-let tapAt = 0; // it tapped on the glass and is waiting to see whether you come
+let tapAt = 0; // he tapped on the glass and is waiting to see whether you come
 let lastComfort = 0;
 let testReds = 0; // failed test runs in a row
 let roughRun = 0; // failures since the last finished task
 let longCared = false;
 let defiedBed = 0;
 
-// Feelings build up from what happens to it and fade over time; the strongest one is its mood.
+// Feelings build up from what happens to him and fade over time; the strongest one is his mood.
 const feel = {
   joy: 0.2, energy: 1, irritation: 0, lonely: 0, worry: 0, hunger: 0.3, fear: 0, shame: 0, excite: 0, pride: 0, love: 0, envy: 0, boredom: 0, hurt: 0,
   curio: 0, thanks: 0, relief: 0, nostalgia: 0, mischief: 0, focus: 0, smug: 0, homesick: 0,
@@ -161,7 +161,7 @@ const trait = (p) => persona === p && ageIndex() > 0;
 
 const clip = (s, n = 60) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s || '');
 const base = (p) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : '');
-// Random, but never one of the last few things it said from the same list.
+// Random, but never one of the last few things he said from the same list.
 const recentPicks = new Map();
 function pick(a) {
   if (a.length < 2) return a[0];
@@ -257,7 +257,7 @@ function backToIdle(ms) {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
     activeTools = 0;
-    // a session that still needs the user keeps it agitated
+    // a session that still needs the user keeps him agitated
     setState(alertSession() ? 'alert' : 'idle');
   }, ms);
 }
@@ -488,7 +488,7 @@ function syncHelpers() {
   }
 }
 
-// a subagent sets off: it gets a helper of its own, and a big enough crew makes it the boss
+// a subagent sets off: it gets a helper of its own, and a big enough crew makes him the boss
 function helperOut(e, s) {
   const type = typeof e.agentType === 'string' ? e.agentType : '';
   if (s.crew.length >= 9) s.crew.shift();
@@ -530,7 +530,7 @@ setInterval(() => {
     const quiet = now - s.last;
     if (quiet > 30 * 60000) sessions.delete(s.id);
     else if (quiet > 5 * 60000 && s.state !== 'idle') s.state = 'idle';
-    // one that never reported back is given up on after half an hour; before that, it frets
+    // one that never reported back is given up on after half an hour; before that, he frets
     s.crew = s.crew.filter((h) => now - h.at < 30 * 60000);
     const late = s.crew.find((h) => !h.fretted && now - h.at > 8 * 60000);
     if (late) {
@@ -629,7 +629,7 @@ function rollDay() {
 }
 rollDay();
 
-// what happened today, for it to dream about later
+// what happened today, for him to dream about later
 function did(key) {
   day.did[key] = (day.did[key] || 0) + 1;
 }
@@ -740,7 +740,7 @@ window.buddy.onWear((w) => {
   applyLook();
   touch();
   setFx('spin', 700);
-  // it has views on some of these hats
+  // he has views on some of these hats
   const off = before !== life.hat && life.omens.held.find((b) => b.good && b.c === `hat:${before}`);
   const on = before !== life.hat && life.omens.held.find((b) => b.c === `hat:${life.hat}`);
   say(on && !on.good ? 'Not that one! It\'s cursed! …fine. You\'ll see.'
@@ -868,7 +868,7 @@ function hurtBy(n) {
   bump('joy', -n / 2);
 }
 
-// made up with: it will not be wary of you tomorrow
+// made up with: he will not be wary of you tomorrow
 function forgiven() {
   if (day.did.hurt && !day.did.madeup) did('madeup');
   if (!life.wary) return;
@@ -876,7 +876,7 @@ function forgiven() {
   saveLife();
 }
 
-// pushed past its limit: some friendship is lost, and it takes itself off to bed if it has one
+// pushed past his limit: some friendship is lost, and he takes himself off to bed if he has one
 function hadEnough() {
   const now = Date.now();
   if (now - lastEnough < 60000) { say(pick(['…', '*sniff*', '*looks away*']), 1500); return; }
@@ -918,7 +918,7 @@ function leaveCorner() {
   window.buddy.corner('');
 }
 
-// edge away from the cursor; false if it has to stand its ground
+// edge away from the cursor; false if he has to stand his ground
 function backOff() {
   if (!wander || away || walking || chasing || hiding || guest || dragging || down) return false;
   if (cornered) {
@@ -935,7 +935,7 @@ function backOff() {
   return true;
 }
 
-// ---- looking after you: when things keep going wrong it stops fretting and fusses over you ----
+// ---- looking after you: when things keep going wrong he stops fretting and fusses over you ----
 
 const COMFORT = {
   fails: ['Hey. It\'s the code that\'s broken, not you.', 'That\'s a lot of red. Come here. *hug*', 'You\'re doing fine. Bugs are just stubborn.', 'Breathe. I\'m right here.'],
@@ -946,13 +946,13 @@ const COMFORT = {
 const COMFORT_BABY = ['Hug? Hug.', 'There, there.', '*pat pat*'];
 const COMFORT_TEEN = ['…hey. You okay? Not that I care. (I care.)', 'That was rough. You\'re still good at this, though.', 'Ugh, bugs. Want me to glare at them for you?'];
 
-// `tag` names the project when several sessions are talking; false if it held its tongue
+// `tag` names the project when several sessions are talking; false if he held his tongue
 function comfort(why, tag = '') {
   const now = Date.now();
   if (quiet || mood === 'hurt' || mood === 'grumpy' || now - lastComfort < 15 * 60000) return false;
   lastComfort = now;
   hushUntil = now + 8000;
-  feel.worry *= 0.5; // its own nerves can wait
+  feel.worry *= 0.5; // his own nerves can wait
   bump('love', 0.2);
   setFx('hug', 2600);
   sfx('pet');
@@ -1018,7 +1018,7 @@ function earn(id, photographed) {
   bump('pride', 0.5);
   if (!photographed) snap('badge', badge.name, capital(badge.hint) + '.');
   setTimeout(() => { sfx('level'); confetti(26); say(`Achievement unlocked: ${badge.name}!`, 6000); }, 2200);
-  // every few badges there is something new for its room
+  // every few badges there is something new for his room
   const prize = ROOM.find((r) => r.need === badgeCount());
   if (prize) setTimeout(() => say(`And something new for my room: ${prize.label.toLowerCase()}!`, 5000), 8500);
 }
@@ -1145,7 +1145,7 @@ function manner() {
   else return;
   say(persona === 'nerdy' ? nerdFact() : pick(lines), 3200);
 }
-// the teenage phase: it answers back, until it grows out of it
+// the teenage phase: he answers back, until he grows out of it
 const TEEN = {
   pokeIdle: ['Ugh. What.', 'Do you MIND?', 'I\'m busy. Doing nothing. It\'s important.', 'Whatever.', 'Stop, you\'re so embarrassing.', 'Can you not.'],
   pokeWorking: ['I KNOW. I\'m doing it.', 'Stop hovering.'],
@@ -1160,7 +1160,7 @@ const TEEN = {
 // a roll of the dice each time; less of it the better you get on
 const rebels = () => ageIndex() === 2 && Math.random() < 0.45 - bondLevel() * 0.06;
 
-// an eye roll and a no; now and then it thinks better of it
+// an eye roll and a no; now and then he thinks better of it
 function defy(lines) {
   setFx('eyeroll', 900);
   sfx('poke');
@@ -1172,7 +1172,7 @@ function defy(lines) {
   }
 }
 
-// until it grows out of it, baby talk comes before any personality
+// until he grows out of it, baby talk comes before any personality
 const voice = () => {
   if (ageIndex() === 0) return BABY;
   const own = PERSONA[persona] || PERSONA.cheerful;
@@ -1206,7 +1206,7 @@ function detailLine(e, s) {
   return null;
 }
 
-// ---- focus timer: quiet for a while, then it insists on a break ----
+// ---- focus timer: quiet for a while, then he insists on a break ----
 
 window.buddy.onPomodoro((on) => {
   touch();
@@ -1389,7 +1389,7 @@ function applySeason() {
   document.body.dataset.holiday = CFG.seasons ? holiday : '';
 }
 
-// ---- goodbye: a send-off with the day's numbers when it is quit from the menu ----
+// ---- goodbye: a send-off with the day's numbers when he is quit from the menu ----
 
 window.buddy.onGoodbye(() => {
   if (fx === 'sleep') setFx('', 0);
@@ -1408,10 +1408,10 @@ window.buddy.onGoodbye(() => {
 const AGES = ['baby', 'kid', 'teen', 'grown'];
 const AGE_NAMES = ['baby', 'kid', 'teenager', 'grown-up'];
 const ageIndex = () => Math.min(3, CFG.growAt.filter((t) => genTasks() >= t).length);
-// long after it has grown up it is getting on a bit: spectacles
+// long after he has grown up he is getting on a bit: spectacles
 const isOld = () => CFG.eggAt > 0 && genTasks() >= CFG.eggAt;
 const showAge = () => { document.body.dataset.age = AGES[ageIndex()]; document.body.dataset.old = isOld() ? '1' : ''; };
-// a baby has few words; these stand in for a personality until it is a kid
+// a baby has few words; these stand in for a personality until he is a kid
 const BABY = {
   pokeIdle: ['Ba!', 'Goo?', 'Eee!', '*giggle*', 'Boop!', 'Hi! Hi!'],
   pokeWorking: ['Busy! Ba!', 'Shh!'],
@@ -1440,14 +1440,14 @@ function grewUp() {
     : 'I grew! I\'m a big kid now! I know so many more words!', 6000);
 }
 
-// ---- phrases you taught it ----
+// ---- phrases you taught him ----
 
 function taught() {
   const fit = life.words.filter((w) => !w.m || w.m === mood);
   return fit.length ? fit[Math.floor(Math.random() * fit.length)].t : '';
 }
 
-// ---- birthdays: the day you first ran it, and a smaller do every month ----
+// ---- birthdays: the day you first ran him, and a smaller do every month ----
 
 const isDate = (d) => /^\d{4}-\d\d-\d\d$/.test(String(d));
 if (!isDate(life.born)) {
@@ -1456,7 +1456,7 @@ if (!isDate(life.born)) {
   life.born = known[0] || todayKey();
 }
 
-// how old it turns today (0 on any other day)
+// how old he turns today (0 on any other day)
 function birthdayAge() {
   const today = todayKey();
   let day = life.born.slice(5);
@@ -1492,7 +1492,7 @@ function party() {
   }
 }
 
-// ---- gifts: now and then a best friend gets something it made ----
+// ---- gifts: now and then a best friend gets something he made ----
 
 const GIFTS = [
   { pic: 'us', title: 'A drawing of us', text: 'You and me. You\'re the tall one.', line: 'It\'s us! I drew it myself. You\'re the tall one.' },
@@ -1535,7 +1535,7 @@ function sorry() {
   say(pick(['I was a pest. I made you something. (click me)', 'About earlier… this is for you. (click me)', 'Sorry about your window. Here. (click me)']), 9000);
 }
 
-// `opened`: clicked in time; otherwise it puts the present away in the album for later
+// `opened`: clicked in time; otherwise he puts the present away in the album for later
 function openGift(opened) {
   const { g } = gift;
   gift = null;
@@ -1552,9 +1552,9 @@ function openGift(opened) {
   say(g.line, 6000);
 }
 
-// ---- starting things: it does not only wait to be asked ----
+// ---- starting things: he does not only wait to be asked ----
 
-// each has two answers; `re` is what it says to each, `later` what it brings up another day
+// each has two answers; `re` is what he says to each, `later` what he brings up another day
 const QUESTIONS = [
   { id: 'coffee', q: 'Question! Coffee or tea?', a: ['Coffee', 'Tea'], re: ['Coffee! I knew it. I can smell it through the screen.', 'Tea! Cosy. I approve.'], later: ['Had your coffee yet? You look under-caffeinated.', 'Tea soon? I\'ll put the pixel kettle on.'] },
   { id: 'owl', q: 'Are you a morning person or a night owl?', a: ['Morning', 'Night'], re: ['A morning person! I\'ll try to be up first.', 'A night owl! That explains the hours we keep.'], later: ['Morning people like you make me look lazy.', 'Fellow night owl. Hoo.'] },
@@ -1565,7 +1565,7 @@ const QUESTIONS = [
   { id: 'here', q: 'Do you like having me here?', a: ['Yes', 'No'], re: ['♥ I like being here too.', 'Oh. …I\'ll try to be quieter.'], later: ['You said you like having me here. I think about that a lot.', 'I\'m being extra quiet. Did you notice?'] },
 ];
 
-// `q.act` makes it a question that does something, not one whose answer it remembers
+// `q.act` makes it a question that does something, not one whose answer he remembers
 function ask(q = pick(QUESTIONS.filter((x) => !(x.id in life.answers)))) {
   const now = Date.now();
   asking = q;
@@ -1622,7 +1622,7 @@ function answer(b) {
   say(q.re[i], 5000);
 }
 
-// something you told it once, brought up again
+// something you told him once, brought up again
 function recall() {
   const known = QUESTIONS.filter((q) => q.id in life.answers);
   if (!known.length) return '';
@@ -1650,7 +1650,7 @@ function inviteToPlay() {
     : pick(['Bet you can\'t find me. Click me and I\'ll hide!', 'Hide and seek? Click me!']), 9000);
 }
 
-// its turn to begin: a secret it is ready to tell, a question, a tap on the glass, a game
+// his turn to begin: a secret he is ready to tell, a question, a tap on the glass, a game
 function startSomething() {
   const now = Date.now();
   const grown = ageIndex() > 0;
@@ -1661,7 +1661,7 @@ function startSomething() {
   else if (grown && !isNight() && !['tired', 'hungry', 'worried', 'embarrassed'].includes(mood)) inviteToPlay();
 }
 
-// ---- secrets: things it only tells you once you are close enough, one a day at most ----
+// ---- secrets: things he only tells you once you are close enough, one a day at most ----
 
 const SECRETS = [
   { id: 'wave', at: 1, text: 'I practise my wave when you aren\'t looking.' },
@@ -1739,7 +1739,7 @@ function friendSvg(f) {
   return el;
 }
 
-// what a visitor says, by the personality it has at home
+// what a visitor says, by the personality he has at home
 const GUEST_LINES = {
   cheerful: ['Nice place you\'ve got!', 'Ooh, is that your human?', 'We should do this more!', 'I love your taskbar.', 'Race you to the edge of the screen!'],
   sarcastic: ['So this is where you live. Cosy.', 'Your human types loudly.', 'I\'ve seen bigger monitors.', 'Don\'t get up. Oh, you didn\'t.', 'Fine. It\'s nice here. Happy?'],
@@ -1750,7 +1750,7 @@ const GUEST_LINES = {
   sleepy: ['*yawn* Nice place… got a bed?', 'I came all this way… zzz…', 'Mind if I sit down?', 'Is it nap time here too?', 'So cosy…'],
   anxious: ['Is it safe here? It looks safe.', 'I left my human alone. Is that okay?', 'Your fans are loud. Is that normal?', 'I can\'t stay long. What if something breaks?', 'Nice desktop. Is it backed up?'],
 };
-// the ones who stood here before it come back to check on things
+// the ones who stood here before him come back to check on things
 const ELDER_LINES = ['Look how you\'ve grown!', 'Is that my scarf? It\'s longer.', 'Are they feeding you properly?', 'I used to stand right there.', 'Keep an eye on the human for me.', 'Still the same taskbar, I see.', 'You have my eyes. Both of them.'];
 const HOST_LINES = ['Hehe, right?', 'Tell me everything!', 'How\'s your human?', 'Mine fixed three bugs today.', 'Want to see my bed?', 'Do you get snacks too?', 'Stay a bit longer!'];
 const visitorEl = document.getElementById('visitor');
@@ -1889,7 +1889,7 @@ signEl.addEventListener('click', () => {
   if (s) goToSession(s);
 });
 
-// ---- its room: the bed's corner fills up with things as achievements come in ----
+// ---- his room: the bed's corner fills up with things as achievements come in ----
 
 const ROOM = [
   { id: 'rug', label: 'Rug', need: 1 },
@@ -1900,7 +1900,7 @@ const ROOM = [
   { id: 'lights', label: 'Fairy lights', need: 12 },
 ];
 const badgeCount = () => Object.keys(life.badges).length;
-// the plant (the one in the room, and the one it waters) grows with the streak
+// the plant (the one in the room, and the one he waters) grows with the streak
 const plantStage = () => { const n = streak(); return n >= 14 ? 3 : n >= 7 ? 2 : n >= 3 ? 1 : 0; };
 
 function sendRoom() {
@@ -1921,7 +1921,7 @@ window.buddy.onRoomToggle((id) => {
   say(life.room[id] ? pick(['Ooh, that ties the room together.', 'Perfect spot for it.', 'Home improvement!']) : 'Okay, back in the cupboard.', 2500, true);
 });
 
-// ---- tricks: repeat a gesture a few times and it works out what you mean ----
+// ---- tricks: repeat a gesture a few times and he works out what you mean ----
 
 const TRICK_REPS = 5;
 const TRICKS = [
@@ -1955,7 +1955,7 @@ function gesture(id) {
   touch();
   if (knows(id)) { doTrick(t); return; }
   if (bondLevel() < t.bond) {
-    // it can tell you want something, but you aren't close enough yet
+    // he can tell you want something, but you aren't close enough yet
     setFx('quest', 1500);
     if (now - lastTooSoon > 30000) {
       lastTooSoon = now;
@@ -2046,7 +2046,7 @@ panel.addEventListener('click', (e) => {
   touch();
   const yours = HANDS.findIndex(([id]) => id === b.dataset.hand);
   const mine = Math.floor(Math.random() * 3);
-  const result = (yours - mine + 3) % 3; // 0 = draw, 1 = you win, 2 = it wins
+  const result = (yours - mine + 3) % 3; // 0 = draw, 1 = you win, 2 = he wins
   const shown = `${HANDS[mine][1]} `;
   if (result === 1) {
     rps.you++;
@@ -2098,12 +2098,12 @@ window.buddy.onHidden((ok) => {
   setFx('hide', 0);
 });
 
-// clicked (found), or it got tired of waiting
+// clicked (found), or he got tired of waiting
 function found(byYou) {
   const took = Date.now() - hiding;
   hiding = 0;
   away = walking = returning = true;
-  window.buddy.hide(false); // the main process walks it home and says when it is there
+  window.buddy.hide(false); // the main process walks him home and says when he is there
   setFx('walk', 0);
   if (byYou) {
     tally('finds');
@@ -2394,7 +2394,7 @@ palEl.addEventListener('click', () => {
   say(pick(['Pip says: meep!', 'Pip says: prrp?', '*Pip wiggles*', 'He likes you. He told me.']), 2000);
 });
 
-// ---- tastes: every kind of file is a kind of food, and it has opinions ----
+// ---- tastes: every kind of file is a kind of food, and he has opinions ----
 
 const FOODS = [
   { id: 'words', name: 'plain words', exts: ['md', 'txt', 'rtf'] },
@@ -2418,7 +2418,7 @@ if (!['code', 'pictures', 'music', 'config', 'web', 'video'].includes(life.fav))
   life.fav = ['code', 'pictures', 'music', 'config', 'web', 'video'][Math.floor(Math.random() * 6)];
 }
 
-// ---- waiting out a long command: it sits down and knits, or taps its foot ----
+// ---- waiting out a long command: he sits down and knits, or taps his foot ----
 
 function startJob() {
   if (waiting || !(CFG.longJobSec > 0)) return;
@@ -2434,7 +2434,7 @@ function startJob() {
   }, CFG.longJobSec * 1000);
 }
 
-// returns how long it sat waiting (0 if the command was quick)
+// returns how long he sat waiting (0 if the command was quick)
 function endJob() {
   clearTimeout(jobTimer);
   const waited = waiting ? Date.now() - jobStart : 0;
@@ -2472,7 +2472,7 @@ function applyQuiet() {
 
 // ---- noticing what you are up to ----
 
-// The main process tells it what kind of app is in front (never its name or title), and how
+// The main process tells him what kind of app is in front (never its name or title), and how
 // often that changes.
 const APP_LINES = {
   editor:   ['Ooh, coding by hand? Show-off.', 'An editor! Can I watch?', 'Writing it yourself today?'],
@@ -3100,7 +3100,7 @@ function rollWeek(unseen) {
   saveLife();
 }
 
-// ---- typing along: it only ever hears that a key went down, never which one ----
+// ---- typing along: he only ever hears that a key went down, never which one ----
 
 let keyTimes = [];
 let typingSince = 0;
@@ -3173,7 +3173,7 @@ const REMINDERS = [
 let remindAt = {};
 let lastRemind = 0;
 
-// ---- hobbies: what it gets up to when nothing is going on ----
+// ---- hobbies: what he gets up to when nothing is going on ----
 
 const HOBBIES = {
   read:     { ms: 9000, lines: ['A little light reading.', 'Chapter three. It\'s getting good.', 'Shh. Reading.', 'The plot thickens. It\'s a changelog.'] },
@@ -3199,7 +3199,7 @@ function startHobby() {
     : pick(HOBBIES[hobby].lines), 3500);
 }
 
-// ---- the scarf: whatever it knits through a long command stays knitted ----
+// ---- the scarf: whatever he knits through a long command stays knitted ----
 
 const SCARF_MARKS = [1, 5, 10, 25, 50, 100, 250, 500]; // metres that get a photo
 let knitStart = 0;
@@ -3296,14 +3296,14 @@ function writeDiary() {
   saveLife();
 }
 
-// ---- opinions: it gets to know each project by its folder name, and takes sides ----
+// ---- opinions: he gets to know each project by its folder name, and takes sides ----
 
 function proj(name) {
   if (!name || name === '__proto__') return null;
   let p = life.projects[name];
   if (!p || typeof p !== 'object') {
     const names = Object.keys(life.projects);
-    // forty is plenty: the one it has not seen for longest makes room
+    // forty is plenty: the one he has not seen for longest makes room
     if (names.length >= 40) delete life.projects[names.sort((a, b) => String((life.projects[a] || {}).last).localeCompare(String((life.projects[b] || {}).last)))[0]];
     p = life.projects[name] = { t: 0, f: 0, last: '', files: {} };
   }
@@ -3311,7 +3311,7 @@ function proj(name) {
   return p;
 }
 
-// its favourite is where the most gets done; the one it dreads is where the most goes wrong
+// his favourite is where the most gets done; the one he dreads is where the most goes wrong
 function opinions() {
   const known = Object.entries(life.projects).filter(([, p]) => p && p.t + p.f >= 8);
   const dread = known.filter(([, p]) => p.f >= 8 && p.f > p.t * 1.5).sort((a, b) => b[1].f / (b[1].t + 1) - a[1].f / (a[1].t + 1))[0];
@@ -3319,7 +3319,7 @@ function opinions() {
   return { fav: fav ? fav[0] : '', dread: dread ? dread[0] : '' };
 }
 
-// what it has to say on walking into a project, the first time each day
+// what he has to say on walking into a project, the first time each day
 function projectHello(s) {
   const p = proj(s.project);
   if (!p) return '';
@@ -3359,7 +3359,7 @@ function blame(s) {
   saveLife();
 }
 
-// the file that gets the blame most often bites, and it says so once a session
+// the file that gets the blame most often bites, and he says so once a session
 function biteLine(e, s) {
   const file = ['Edit', 'Write', 'NotebookEdit'].includes(e.tool) ? base(e.detail) : '';
   const p = file && ageIndex() > 0 && s.bit !== file ? proj(s.project) : null;
@@ -3371,9 +3371,9 @@ function biteLine(e, s) {
   return pick([`Oh no, ${clip(file, 26)} again. That one bites.`, `${clip(file, 26)}. Careful. We have history.`, `Not ${clip(file, 26)}… okay. Gloves on.`]);
 }
 
-// ---- two sessions, one file: it tells on them ----
+// ---- two sessions, one file: he tells on them ----
 
-const clashes = new Map(); // the pair and the file -> when it last said so
+const clashes = new Map(); // the pair and the file -> when he last said so
 
 function clash(e, s) {
   const key = String(e.detail || '').replace(/\\/g, '/').toLowerCase();
@@ -3397,7 +3397,7 @@ function clash(e, s) {
   return `Careful! Two Claudes are both editing ${clip(base(e.detail), 26)}. One of them is in for a surprise.`;
 }
 
-// ---- superstitions: the same thing three times running, and it believes ----
+// ---- superstitions: the same thing three times running, and he believes ----
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 let lastFed = 0;
@@ -3421,7 +3421,7 @@ function signs() {
 const omenHat = (b) => { const hat = HATS.find((h) => `hat:${h.id}` === b.c); return hat ? hat.label.toLowerCase() : 'hat'; };
 const omenDay = (b) => DAY_NAMES[Number(b.c.slice(4))] || 'Monday';
 
-// a belief, in its own words
+// a belief, in his own words
 function omenText(b) {
   const kind = b.c.split(':')[0];
   if (kind === 'hat') return `the ${omenHat(b)} is ${b.good ? 'lucky' : 'cursed'}`;
@@ -3454,7 +3454,7 @@ function omen(good, hush) {
   let word = '';
   for (const b of [...life.omens.held]) {
     if (!now.includes(b.c)) {
-      // it went wrong without the lucky thing: it did warn you
+      // it went wrong without the lucky thing: he did warn you
       if (b.good && !good) bump('smug', 0.7);
       if (b.good && !good) word = word || pick([`I TOLD you. ${capital(omenText(b))}.`, `Well, what did you expect? ${capital(omenText(b))}.`]);
       continue;
@@ -3467,7 +3467,7 @@ function omen(good, hush) {
     }
     b.broke = (Number(b.broke) || 0) + 1;
     if (b.broke >= 5 && b.broke > (Number(b.kept) || 0)) {
-      // let down too often: it stops believing
+      // let down too often: he stops believing
       life.omens.held = life.omens.held.filter((x) => x !== b);
       applyLook();
       word = `…maybe it was never true that ${omenText(b)}. Don't tell anyone I said so.`;
@@ -3492,8 +3492,8 @@ function omen(good, hush) {
   setTimeout(() => { if (!quiet) say(word, 4500); }, 3400);
 }
 
-// Before a test run it puts its luck in order: the lucky hat goes on, the cursed one comes
-// off, and anything else it can only fret about.
+// Before a test run he puts his luck in order: the lucky hat goes on, the cursed one comes
+// off, and anything else he can only fret about.
 function omenBefore() {
   if (ageIndex() === 0) return '';
   const now = signs();
@@ -3519,7 +3519,7 @@ function omenBefore() {
   return '';
 }
 
-// ---- generations: long after it has grown up an egg turns up, and one day a new one hatches ----
+// ---- generations: long after he has grown up an egg turns up, and one day a new one hatches ----
 
 const EGG_WARM = 30; // finished tasks (a pet counts for half) before it is ready
 
@@ -3550,7 +3550,7 @@ function warmEgg(n) {
   if (stage !== was) setTimeout(() => say(stage === '3' ? 'The egg is moving! It\'s nearly time.' : 'The egg made a noise. A small one. I heard it.', 5000), 4200);
 }
 
-// Hatching is for good, so it asks first, and only once a day.
+// Hatching is for good, so he asks first, and only once a day.
 function askHatch() {
   life.egg.asked = todayKey();
   ask({
@@ -3577,7 +3577,7 @@ function hatch() {
   life.egg = null;
   life.name = '';
   life.born = life.partied = todayKey();
-  life.bond = Math.min(life.bond, BOND_AT[2]); // it has heard all about you
+  life.bond = Math.min(life.bond, BOND_AT[2]); // he has heard all about you
   life.wary = false;
   Object.assign(feel, { joy: 0.6, energy: 1, irritation: 0, lonely: 0, worry: 0, hunger: 0.5, fear: 0, shame: 0, excite: 0.5, pride: 0, love: 0.5, envy: 0, boredom: 0, hurt: 0 });
   did('hatched');
@@ -3789,7 +3789,7 @@ window.buddy.onEvent((e) => {
       bump('joy', -0.15);
       sfx('fail');
       setState('sad');
-      // it was cheering about green tests a minute ago
+      // he was cheering about green tests a minute ago
       const tooSoon = kind === 'test' && Date.now() - lastCheer < 120000;
       if (kind === 'test') { lastTestFailed = true; lastCheer = 0; testReds++; }
       roughRun++;
@@ -3805,7 +3805,7 @@ window.buddy.onEvent((e) => {
         sfx('sip');
         tell(pick(['Three in a row. Tea? Deep breath. We\'ll get it.', 'Okay. Kettle\'s on. Nobody panic.', 'Rough patch. Here: tea. It helps.']), 7000);
       } else if ((failStreak === 5 && comfort('fails', tag)) || (kind === 'test' && testReds === 3 && comfort('tests', tag))) {
-        // it is you it is worried about now
+        // it is you he is worried about now
       } else {
         tell(tooSoon ? 'Oh. I cheered too soon, didn\'t I.'
           : kind === 'test' ? pick(['Tests failed… we\'ll get them.', 'Red. Okay. Deep breath.', 'Some red. We can fix red.', 'Failing tests are just to-do lists.'])
@@ -3969,7 +3969,7 @@ const POKE_LINES = {
   night:    ['Mmh… it\'s so late…', '*sleepy blink*', 'Shhh. Night time.', 'Zzz—oh. Hi.', 'Whisper, please.', 'The moon says hi.', 'Did you know it\'s dark?', '*tiny yawn* …hi.', 'Poke me quietly.'],
 };
 
-// What a poke gets you depends on how it feels (only while it isn't busy).
+// What a poke gets you depends on how he feels (only while he isn't busy).
 const MOOD_POKE = {
   joyful:  ['Hehe! Again!', 'Boop back!', '♥', 'Best day.', 'Life is good!', 'I could do this all day.', 'You\'re my favourite human.', 'Hee! Do it again!', 'I\'m too happy to be poked wrong.'],
   grumpy:  ['Stop it.', 'What.', 'Hmph.', 'I\'m not talking to you.', 'Do you mind.', 'Count to ten. Then don\'t.', 'I am ignoring you.', 'Not now.', 'Poke someone else.'],
@@ -4024,7 +4024,7 @@ const MUSE_NIGHT = ['It\'s late… shouldn\'t we be asleep?', 'The screen is so 
 const MUSE_ANY = [
   'I wonder what that button does…',
   'What\'s in all those folders?',
-  'Do the other windows have buddies?',
+  'Do the other windows have Clawds?',
   'How many pixels am I?',
   'What are we building next?',
   'Where does the cursor go at night?',
@@ -4059,7 +4059,7 @@ const MUSE_ANY = [
   'Are we the good guys? I think we\'re the good guys.',
 ];
 const DREAMS = ['…green tests…', '…no, not the semicolon…', '…five more commits…', 'zzz… snacks…', '…it works on my machine…', '…mmh… cursor…', '…merge conflict… no…', '…so many snacks…', '…all tests green…', '…chasing the ball…', '…who moved my taskbar…', '…just one more poke…', '…rebase… gently…', '…a hat… for my hat…', '…the build is green… so green…', '…no more yaml…', '…who moved my window…', '…approved… merged… zzz…'];
-// what it mumbles when it dreams about something from the day
+// what he mumbles when he dreams about something from the day
 const DREAM_OF = {
   test:   ['…all green…', '…pass… pass… pass…'],
   bug:    ['…no… not the red one…', '…it was a typo all along…'],
@@ -4173,7 +4173,7 @@ let lastFlinch = 0;
 let pet = { lastX: 0, dir: 0, turns: [] };
 let rub = { lastY: 0, dir: 0, turns: [] }; // the same, up and down
 let trail = []; // the last quarter second of cursor positions, for swipes
-const circ = { ang: 0, at: 0, sum: 0, start: 0, fast: false }; // how far round it the cursor has gone
+const circ = { ang: 0, at: 0, sum: 0, start: 0, fast: false }; // how far round him the cursor has gone
 const shake = { x: 0, dir: 0, turns: [] };
 let lastShake = 0;
 let goneSince = 0; // when the mouse and keyboard went quiet, once that has lasted a while
@@ -4204,7 +4204,7 @@ let ballRound = -1;
 function touch() {
   lastActivity = lastTouched = Date.now();
   feel.envy = Math.max(0, feel.envy - 0.6);
-  // it tapped on the glass, and you came
+  // he tapped on the glass, and you came
   if (tapAt) {
     tapAt = 0;
     bump('joy', 0.2);
@@ -4256,7 +4256,7 @@ function poke(e) {
     tally('dizzy');
     bump('irritation', 0.35);
     bump('shame', 0.2);
-    // funny once; it starts to hurt when it is already cross and you keep going
+    // funny once; it starts to hurt when he is already cross and you keep going
     hurtBy(sore || mood === 'grumpy' ? 0.3 : 0.2);
     setFx('dizzy', 2600);
     sfx('fail');
@@ -4287,13 +4287,13 @@ function poke(e) {
   if (mood === 'grumpy') { bump('irritation', 0.08); hurtBy(0.02); }
   else bump('joy', 0.05);
   const calm = state === 'idle' || state === 'thinking';
-  // a baby hasn't the words for its moods yet
+  // a baby hasn't the words for his moods yet
   const moodLines = calm && ageIndex() > 0 ? (wasLonely ? MOOD_POKE.lonely : MOOD_POKE[mood] || (isNight() ? POKE_LINES.night : null)) : null;
   // a persona's voice, or (now and then) something only a friend would get
   const own = state === 'idle' ? voice().pokeIdle : state === 'working' ? voice().pokeWorking : null;
   const friendly = calm && !moodLines && Math.random() < 0.3 ? BOND_POKE[bondLevel()] : null;
   const mine = calm && Math.random() < 0.15 ? taught() : '';
-  // the secret handshake, once it has let you in on it
+  // the secret handshake, once he has let you in on it
   const boop = calm && !moodLines && life.secrets.includes('handshake') && Math.random() < 0.25 ? 'Boop. ♥' : '';
   // he keeps count, naturally
   const count = calm && !moodLines && trait('nerdy') && Math.random() < 0.2 ? `Poke number ${life.stats.pokes}. Logged.` : '';
@@ -4318,8 +4318,8 @@ svg.addEventListener('pointermove', (e) => {
     blocking = 0;
     roaming = inching = false;
     clearTimeout(roamTimer);
-    hiding = 0; // carried out of its hiding place: game over
-    away = walking = returning = goingToBed = false; // wherever it ends up is the new home
+    hiding = 0; // carried out of his hiding place: game over
+    away = walking = returning = goingToBed = false; // wherever he ends up is the new home
     touch();
     window.buddy.drag(true);
     setFx('held', 0);
@@ -4335,7 +4335,7 @@ svg.addEventListener('pointermove', (e) => {
   }
   if (down || fx === 'sleep') return;
 
-  // rubbing up and down is a gesture it can learn; side to side is a pet
+  // rubbing up and down is a gesture he can learn; side to side is a pet
   const dy = e.clientY - rub.lastY;
   if (Math.abs(dy) >= 6) {
     rub.lastY = e.clientY;
@@ -4353,7 +4353,7 @@ svg.addEventListener('pointermove', (e) => {
     }
   }
 
-  // petting: rubbing the cursor back and forth over it without pressing
+  // petting: rubbing the cursor back and forth over him without pressing
   const dx = e.clientX - pet.lastX;
   if (Math.abs(dx) < 3) return;
   const dir = Math.sign(dx);
@@ -4366,7 +4366,7 @@ svg.addEventListener('pointermove', (e) => {
     if (pet.turns.length >= 4 && !['pet', 'fly', 'fall'].includes(fx)) {
       pet.turns = [];
       if (mood === 'grumpy' && (sulk === 'l' || sulk === 'r')) {
-        // sulking with its back turned: no pets until you go round to its front
+        // sulking with his back turned: no pets until you go round to his front
         touch();
         sfx('poke');
         say(pick(['I\'m not talking to you.', 'Not from back there.', 'Hmph. Come round and say it to my face.']), 2500);
@@ -4439,7 +4439,7 @@ window.addEventListener('contextmenu', (e) => {
   window.buddy.menu();
 });
 
-// ---- gravity: let go in the air and it falls; flick it and it flies ----
+// ---- gravity: let go in the air and he falls; flick him and he flies ----
 
 window.buddy.onFly(({ speed, jump, down }) => {
   if (down) {
@@ -4457,11 +4457,11 @@ window.buddy.onFly(({ speed, jump, down }) => {
     return;
   }
   touch();
-  away = walking = returning = goingToBed = stalking = false; // it may have walked off the edge of a window
+  away = walking = returning = goingToBed = stalking = false; // he may have walked off the edge of a window
   if (speed > 18) {
     tally('throws');
     if (mood !== 'joyful') bump('fear', 0.3);
-    // thrown while it is already upset: that is not a game any more
+    // thrown while he is already upset: that is not a game any more
     if (['grumpy', 'scared', 'hurt'].includes(mood)) hurtBy(0.25);
     setFx('fly', 0);
     say(mood === 'hurt' ? 'Nooo—!' : mood === 'grumpy' ? 'HEY—!' : mood === 'scared' ? 'NOT AGAAAAIN!' : pick(['WHEEEEE!', 'I can flyyy!', 'Aaaaaah!', 'To infinity!', 'Yeeeeet!', 'Tell my taskbar I love her!']), 2500);
@@ -4478,7 +4478,7 @@ window.buddy.onBounce(() => {
 });
 
 window.buddy.onLanded(({ impact, placed, perch, jump, down }) => {
-  if (dragging) return; // caught again before it settled
+  if (dragging) return; // caught again before he settled
   perched = !!perch;
   if (down) {
     // down on the floor: the rest of the way is on foot
@@ -4509,7 +4509,7 @@ window.buddy.onLanded(({ impact, placed, perch, jump, down }) => {
   }
 });
 
-// ---- the ball: it chases it and bats it back ----
+// ---- the ball: he chases it and bats it back ----
 
 function stopChase(worn) {
   chasing = false;
@@ -4538,7 +4538,7 @@ window.buddy.onBatted(() => {
   if (bats === 1 || Math.random() < 0.4) say(pick(['Got it!', 'Boop!', 'Mine!', 'Hah!', 'Bap!', 'Pow!', 'Take that!', 'Whack!']), 1200);
 });
 
-// ---- snacks: drag a file or some text onto it ----
+// ---- snacks: drag a file or some text onto him ----
 
 let wantAt = 0;
 
@@ -4598,7 +4598,7 @@ function feed(name, text, size) {
   bump('energy', 0.3);
   bump('lonely', -0.5);
   bump('irritation', -0.2);
-  bump('hurt', -0.3); // a snack is an apology it understands
+  bump('hurt', -0.3); // a snack is an apology he understands
   did('snack');
   if (needed) bump('thanks', 0.8);
   lastFed = Date.now();
@@ -4612,7 +4612,7 @@ function feed(name, text, size) {
   life.stats.kinds = Array.isArray(life.stats.kinds) ? life.stats.kinds : [];
   if (!life.stats.kinds.includes(kind) && life.stats.kinds.length < 200) life.stats.kinds.push(kind);
   if (life.stats.kinds.length >= 10) earn('gourmet');
-  // how many times it has had this kind of food; tastes grow on it
+  // how many times he has had this kind of food; tastes grow on him
   const food = foodOf(name);
   if (!life.stats.eaten || typeof life.stats.eaten !== 'object') life.stats.eaten = {};
   const times = food ? (life.stats.eaten[food.id] = (life.stats.eaten[food.id] || 0) + 1) : 0;
@@ -4734,10 +4734,10 @@ window.buddy.onCursor(({ x, y, sx, sy }) => {
   document.body.style.setProperty('--lx', `${((dx / dist) * 6 * reach * shy).toFixed(1)}px`);
   document.body.style.setProperty('--ly', `${(bashful ? 4 : (dy / dist) * 5 * reach * shy).toFixed(1)}px`);
 
-  // the cursor charging straight at it makes it flinch
+  // the cursor charging straight at him makes him flinch
   if (now - cur.wasAt > 90) {
-    const rush = (cur.was - cur.dist) / (now - cur.wasAt); // px per ms, toward it
-    // hurt, it flinches at much less, and backs away
+    const rush = (cur.was - cur.dist) / (now - cur.wasAt); // px per ms, toward him
+    // hurt, he flinches at much less, and backs away
     const sore = mood === 'hurt';
     // the anxious one jumps at less; the wise one does not jump at all
     if (rush > (sore ? 0.6 : trait('anxious') ? 1.8 : 3) && (sore || !trait('wise')) && cur.dist < (sore ? 300 : 130) && !fx && !down && state === 'idle' && now - lastFlinch > (sore ? 4000 : 8000)) {
@@ -4755,7 +4755,7 @@ window.buddy.onCursor(({ x, y, sx, sy }) => {
 
   if (dragging || down || editingNote || now - foodDragAt < 1000) return;
   const el = document.elementFromPoint(x, y);
-  // the box around the body counts too, so the gaps between its legs and arms don't let a
+  // the box around the body counts too, so the gaps between his legs and arms don't let a
   // click or a dragged snack slip through
   const inBox = x > r.left + r.width * 0.1 && x < r.right - r.width * 0.1 && y > r.top + r.height * 0.22 && y < r.top + r.height * 0.84;
   const hit = inBox || (!!el && (wrap.contains(el) || el === bubble || minis.contains(el) || palEl.contains(el) || el === noteEl || panel.contains(el) || signEl.contains(el) || visitorEl.contains(el)));
@@ -4770,12 +4770,12 @@ window.buddy.onCursor(({ x, y, sx, sy }) => {
   }
 });
 
-// What it reads into the way the cursor moves: swipes and circles it can learn as tricks,
-// circling fast enough to make it dizzy, and the shake of someone who has lost the pointer.
+// What he reads into the way the cursor moves: swipes and circles he can learn as tricks,
+// circling fast enough to make him dizzy, and the shake of someone who has lost the pointer.
 function readCursor(now, sx) {
   const steady = !dragging && !down && !walking && !chasing && !hiding && !['fly', 'fall', 'held', 'sleep'].includes(fx);
 
-  // a quick swipe straight up or down through it
+  // a quick swipe straight up or down through him
   trail.push({ t: now, x: cur.dx, y: cur.dy });
   while (now - trail[0].t > 280) trail.shift();
   const from = trail[0];
@@ -4785,7 +4785,7 @@ function readCursor(now, sx) {
     gesture(cur.dy < from.y ? 'jump' : 'sit');
   }
 
-  // going round and round it
+  // going round and round him
   const ang = Math.atan2(cur.dy, cur.dx);
   let da = ang - circ.ang;
   if (da > Math.PI) da -= 2 * Math.PI;
@@ -4819,7 +4819,7 @@ function readCursor(now, sx) {
       circ.start = now;
       gesture('twirl');
     } else {
-      circ.fast = true; // too quick to be a signal: this is someone trying to make it dizzy
+      circ.fast = true; // too quick to be a signal: this is someone trying to make him dizzy
     }
   }
 
@@ -4842,7 +4842,7 @@ function readCursor(now, sx) {
 
 // ---- curiosity, play and little habits ----
 
-// with gravity it lives on the floor, so only sideways distance matters
+// with gravity he lives on the floor, so only sideways distance matters
 const reachTo = () => (gravity ? Math.abs(cur.dx) || 1 : cur.dist);
 
 function goHome() {
@@ -4900,7 +4900,7 @@ window.buddy.onWalkDone((at) => {
     returning = away = false;
     setFx('', 0);
   } else if (fled) {
-    setFx('', 0); // far enough; it keeps its distance for a while
+    setFx('', 0); // far enough; he keeps his distance for a while
   } else {
     setFx('peer', 2500);
     say(pick(['Whatcha doing?', 'What\'s this? What\'s this?', 'Ooh. Interesting.', 'Can I see?', 'Anything good?', 'I\'m just looking.', 'Ooh, shiny.']), 2500);
@@ -4928,7 +4928,7 @@ window.buddy.onSettings((s) => {
   quietManual = !!s.quiet;
   persona = PERSONA[s.personality] ? s.personality : 'cheerful';
   applyConfig(s.config);
-  applyLook(); // its code to share includes the personality
+  applyLook(); // his code to share includes the personality
   applyQuiet();
   render();
   if (!wander && away && !returning) goHome();
@@ -4963,15 +4963,15 @@ setInterval(() => {
     bump('boredom', 0.2);
     if (!fx) say(pick(['Maybe later, then.', 'No? Okay. I\'ll play by myself.']), 3000);
   }
-  // it tapped on the glass and nobody came
+  // he tapped on the glass and nobody came
   if (tapAt && now - tapAt > 30000) {
     tapAt = 0;
     bump('lonely', 0.15);
     if (!fx && state === 'idle' && !quiet) say(pick(['…okay. You\'re busy. I get it.', 'Never mind…', 'I\'ll wait.']), 3000);
   }
 
-  // sulking: it keeps its back to you until the cursor has come round to the side it faces
-  // and stayed there a moment; the first time, it may well turn the other way
+  // sulking: he keeps his back to you until the cursor has come round to the side he faces
+  // and stayed there a moment; the first time, he may well turn the other way
   if (sulk === 'l' || sulk === 'r') {
     const inFront = (sulk === 'l' ? cur.dx < -50 : cur.dx > 50) && cur.dist < 280;
     if (!inFront) {
@@ -5110,7 +5110,7 @@ setInterval(() => {
     return;
   }
 
-  // friends get a nuzzle when the cursor just rests on it
+  // friends get a nuzzle when the cursor just rests on him
   if (hovering && still > 2000 && state === 'idle' && bondLevel() >= 2 && mood !== 'grumpy' && mood !== 'hurt' && now - lastNuzzle > 60000) {
     lastNuzzle = now;
     bump('love', 0.2);
@@ -5148,7 +5148,7 @@ setInterval(() => {
     bump('energy', 0.3);
     setFx('stretch', 2500);
     const week = lastWeek();
-    // still thinking about yesterday, if nobody made it up to it
+    // still thinking about yesterday, if nobody made it up to him
     const wary = life.wary && life.hurtOn !== todayKey() && ageIndex() > 0;
     if (wary) forgiven();
     // on Mondays, look back at the week
@@ -5158,7 +5158,7 @@ setInterval(() => {
       ? `Good morning! Last week: ${plural(week.total, 'task')}, best day ${week.best.name}.`
       : streak() >= 2 ? `Good morning! Day ${streak() + 1} of our streak?`
       : 'Good morning! What are we making today?', 6000);
-    // good friends hear what it dreamt
+    // good friends hear what he dreamt
     const wrote = life.diary.length > 0 && life.diary[life.diary.length - 1].d === dateKey(daysAgo(1));
     if (!wary && ageIndex() > 0 && (wrote || bondLevel() >= 3)) {
       const about = wrote && (bondLevel() < 3 || Math.random() < 0.5) ? pick(['I wrote about yesterday in my diary. It\'s in the album. No peeking. …okay, you can peek.', 'Yesterday is in my diary now. You\'re in it.']) : pick(DREAM_TELL);
@@ -5209,7 +5209,7 @@ setInterval(() => {
     prank();
   } else if (state === 'idle' && now > nextInit && now > hushUntil && !guest && !gift && !invite && !asking && !sleepy
     && now - lastActivity > 20000 && now - Math.max(cur.movedAt, lastKey) < 60000 && !['grumpy', 'hurt', 'scared'].includes(mood)) {
-    // you are around and nothing is happening: its turn to start something
+    // you are around and nothing is happening: his turn to start something
     nextInit = now + (10 + Math.random() * 10) * 60000;
     startSomething();
   } else if (state === 'idle' && now > nextHobby && now - lastActivity > 30000
@@ -5258,7 +5258,7 @@ function bump(k, d) {
 }
 
 function currentMood() {
-  // a mood it is already in is a little sticky, so it doesn't flicker at the threshold
+  // a mood he is already in is a little sticky, so it doesn't flicker at the threshold
   const s = (m) => (mood === m ? 0.15 : 0);
   // being hurt comes before everything
   if (feel.hurt > 0.6 - s('hurt')) return 'hurt';
@@ -5294,7 +5294,7 @@ function saveFeel() {
   store('buddy-day', day);
 }
 
-// Feelings carry over between runs; time apart makes it lonelier and hungrier, but rested.
+// Feelings carry over between runs; time apart makes him lonelier and hungrier, but rested.
 {
   const was = load('buddy-feel', null);
   if (was) {
@@ -5337,7 +5337,7 @@ setInterval(() => {
   bump('hurt', asleep ? -0.002 : -0.0005);
   // waiting around is boring: on you to answer Claude, or on a command that will not end
   bump('boredom', !asleep && (waiting || alertSession()) ? 1 / 150 : -0.01);
-  // you are busy at the keyboard and have had no time for it in ages
+  // you are busy at the keyboard and have had no time for him in ages
   const typing = Date.now() - lastKey < 30000;
   bump('envy', !asleep && typing && Date.now() - lastTouched > 10 * 60000 && Date.now() - lastActivity > 5 * 60000 ? 1 / 420 : -0.005);
   // bored, or left out with you right there: he starts getting ideas
@@ -5375,12 +5375,12 @@ setInterval(() => {
   if (next !== mood) {
     const prev = mood;
     mood = next;
-    // cross enough to turn its back, away from wherever the cursor is
+    // cross enough to turn his back, away from wherever the cursor is
     sulk = next === 'grumpy' ? (cur.dx < 0 ? 'r' : 'l') : '';
     sulkTurns = frontSince = 0;
     if (next === 'hurt') {
       did('hurt');
-      // it remembers: wary tomorrow unless you make it up, and a card in the album
+      // he remembers: wary tomorrow unless you make it up, and a card in the album
       life.wary = true;
       if (life.hurtOn !== todayKey()) {
         life.hurtOn = todayKey();
@@ -5444,7 +5444,7 @@ window.buddy.onAskMood(() => {
   const timer = focusUntil ? ` Focus: ${Math.max(1, Math.round((focusUntil - Date.now()) / 60000))} min left.` : '';
   const food = life.favFound ? ` Favourite food: ${FOODS.find((f) => f.id === life.fav).name}.` : '';
   const belief = life.omens.held.length ? life.omens.held[Math.floor(Math.random() * life.omens.held.length)] : null;
-  // one more thing about itself, a different one each time
+  // one more thing about himself, a different one each time
   const more = [
     life.scarf >= 60 && `My scarf is ${scarfLen()} long.`,
     belief && `${belief.from ? `${belief.from} taught me that` : 'I happen to know that'} ${omenText(belief)}.`,
@@ -5456,13 +5456,13 @@ window.buddy.onAskMood(() => {
 });
 
 // Nod off after a couple of quiet minutes (much sooner when tired or late); any hook event or
-// poke wakes it. Asleep, it mumbles now and then.
+// poke wakes him. Asleep, he mumbles now and then.
 setInterval(() => {
   const now = Date.now();
   if (fx === 'sleep') {
     if (now > nextDream) {
       nextDream = now + 40000 + Math.random() * 50000;
-      // mostly it dreams about what it did today: a picture in a thought bubble
+      // mostly he dreams about what he did today: a picture in a thought bubble
       const seen = Object.keys(day.did).filter((k) => DREAM_OF[k]);
       if (seen.length && Math.random() < 0.7) {
         dream = seen[Math.floor(Math.random() * seen.length)];
@@ -5478,7 +5478,7 @@ setInterval(() => {
   }
   const patience = (mood === 'tired' || isNight() || trait('sleepy') ? CFG.sleepAfterSecSleepy : CFG.sleepAfterSec) * 1000;
   if (now - lastActivity < patience) bedTried = false;
-  // someone typing nearby keeps it up
+  // someone typing nearby keeps him up
   if (state === 'idle' && !fx && !away && !chasing && !walking && !focusUntil && !editingNote && !rps && !asking && now - lastActivity > patience && now - lastKey > 30000) {
     // a teenager does not go to bed just because it is bedtime
     if (ageIndex() === 2 && mood !== 'tired' && now - defiedBed > 30 * 60000) {
@@ -5490,7 +5490,7 @@ setInterval(() => {
       }
     }
     if (bedOn && !bedTried) {
-      // it has a bed: walk over to it first (the main process answers when it has arrived)
+      // he has a bed: walk over to it first (the main process answers when he has arrived)
       bedTried = true;
       goingToBed = walking = true;
       setFx('walk', 0);

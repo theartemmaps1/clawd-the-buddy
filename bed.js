@@ -1,4 +1,4 @@
-// The room (the bed and whatever it has earned) is its own window; the main process moves it.
+// The room (the bed and whatever he has earned) is its own window; the main process moves it.
 // This reports when it is grabbed and let go, and shows what Clawd says is in it.
 const el = document.getElementById('bed');
 let held = false;

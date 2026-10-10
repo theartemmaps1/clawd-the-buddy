@@ -13,8 +13,8 @@ const MAX_BODY = 256 * 1024; // hook payloads can contain file contents; cap wha
 
 const WIN_W = 240;
 const WIN_H = 280;
-// The character is smaller than its window. These are the transparent margins that may hang
-// off the edge of the work area so its feet, sides and head (not the window) touch the edges.
+// The character is smaller than his window. These are the transparent margins that may hang
+// off the edge of the work area so his feet, sides and head (not the window) touch the edges.
 const FOOT_PAD = 28;
 const SIDE_PAD = 30;
 const HEAD_PAD = 130;
@@ -30,14 +30,14 @@ let tray;
 let dragOffset = null; // cursor offset inside the window while Clawd is being carried
 let dragTrail = []; // recent cursor positions while carried, to work out a throw
 let home = null; // where Clawd lives; he wanders from here and comes back
-let walk = null; // { x, y, tx, ty } while it is scuttling somewhere on its own
-let fall = null; // { x, y, vx, vy, peak, bounces, ground } while it is in the air
+let walk = null; // { x, y, tx, ty } while he is scuttling somewhere on his own
+let fall = null; // { x, y, vx, vy, peak, bounces, ground } while he is in the air
 
-// other apps' windows, top-most first, so it can land on and ride their top edges
+// other apps' windows, top-most first, so he can land on and ride their top edges
 let watcher = null;
 let windows = []; // { h, l, t, r, b, zoomed } in screen DIPs: every window the helper reports
 let platforms = []; // the same list while "Sit on windows" is on, otherwise empty
-let perch = null; // { h, l, t } of the window it is standing on
+let perch = null; // { h, l, t } of the window he is standing on
 let presence = { full: false, mic: false, app: '', game: '', seq: 0 }; // what else the helper notices
 let lastApp = '';
 let frontH = 0; // the window in front, as the helper numbers it
@@ -69,17 +69,17 @@ let wardrobe = { tasks: 0, hat: '', color: 'classic', hats: [], colors: [], extr
 let badges = []; // { label, earned }, also from the renderer
 let roomItems = []; // { id, label, need, unlocked, on }
 let tricks = []; // { id, label, known }
-let who = { name: '', code: '', friends: [], words: 0 }; // its name, its code to share, who it knows
-let roomState = { on: [], plant: 0, night: false, scarf: 0 }; // what is standing in its room right now
+let who = { name: '', code: '', friends: [], words: 0 }; // his name, his code to share, who he knows
+let roomState = { on: [], plant: 0, night: false, scarf: 0 }; // what is standing in his room right now
 let albumWin = null;
 let pomodoro = false;
 let quitting = false;
 // Local dev tools, if there are any: a dev/ folder next to the app that is not part of the
 // repo (see loadDev). Without it none of this does anything.
 let dev = null;
-let savesHeld = false; // dev sandbox: nothing it remembers is written to disk
+let savesHeld = false; // dev sandbox: nothing he remembers is written to disk
 
-// its room: a window of its own with the bed in it, which it walks back to when it is sleepy
+// his room: a window of its own with the bed in it, which he walks back to when he is sleepy
 const BED_W = 300;
 const BED_H = 160;
 const ROOM_SCALE = 5; // room.html is drawn on a 60x32 grid
@@ -942,7 +942,7 @@ function dropFromPerch() {
   send('buddy-fly', { speed: 0 });
 }
 
-// The window it stands on moved, resized, closed or got covered.
+// The window he stands on moved, resized, closed or got covered.
 function followPerch() {
   if (!perch || dragOffset || fall || !win || win.isDestroyed()) return;
   const i = platforms.findIndex((p) => p.h === perch.h);
@@ -962,7 +962,7 @@ function followPerch() {
   perch.t = p.t;
 }
 
-// walked (or chased a ball) past the end of the window it was standing on
+// walked (or chased a ball) past the end of the window he was standing on
 function checkPerchEdge() {
   if (!perch) return;
   const p = platforms.find((q) => q.h === perch.h);
@@ -970,7 +970,7 @@ function checkPerchEdge() {
   if (!p || cx < p.l || cx > p.r) dropFromPerch();
 }
 
-// Where a falling Clawd would come to rest this tick: the floor, or a window top it just
+// Where a falling Clawd would come to rest this tick: the floor, or a window top he just
 // passed through on the way down.
 function groundFor(f, prevFeet, a) {
   const ground = { y: floorY(a), h: null, l: 0, t: 0 };
@@ -1059,7 +1059,7 @@ function stepFall() {
 function stepChase(now) {
   const b = win.getBounds();
   const dx = ball.x + BALL / 2 - (b.x + WIN_W / 2);
-  // without gravity it floats, so it has to fly over to the ball's height as well
+  // without gravity he floats, so he has to fly over to the ball's height as well
   const dy = settings.gravity ? 0 : ball.y + BALL - (b.y + WIN_H - FOOT_PAD);
   if (Math.abs(dx) > 46 || Math.abs(dy) > 30) {
     const stepX = Math.abs(dx) > 46 ? Math.sign(dx) * Math.min(CHASE_STEP, Math.abs(dx)) : 0;
@@ -1218,7 +1218,7 @@ ipcMain.on('buddy-walk', (_e, off) => {
     x: b.x,
     y: b.y,
     tx: clampX(a, home.x + ox),
-    // with gravity it stays on its floor or window; without, it floats wherever it likes
+    // with gravity he stays on his floor or window; without, he floats wherever he likes
     ty: settings.gravity ? home.y : Math.min(Math.max(home.y + oy, a.y), a.y + a.height - WIN_H),
   };
 });
@@ -1371,13 +1371,13 @@ ipcMain.on('bed-drag', (e, on) => {
   }
 });
 
-// The renderer says it is sleepy: walk to the bed, and make that home.
+// The renderer says he is sleepy: walk to the bed, and make that home.
 ipcMain.on('buddy-go-bed', () => {
   if (!win || win.isDestroyed() || !bedWin || bedWin.isDestroyed() || dragOffset || fall) return send('buddy-walk-done');
   const bed = bedWin.getBounds();
   const b = win.getBounds();
   const tx = bed.x + BED_W / 2 - WIN_W / 2;
-  // with gravity it stays on its own level; without, it floats over and settles into the bed
+  // with gravity he stays on his own level; without, he floats over and settles into the bed
   const ty = settings.gravity ? b.y : bed.y + BED_H - (WIN_H - FOOT_PAD) - 6;
   if (Math.hypot(tx - b.x, ty - b.y) < 12) return send('buddy-walk-done');
   chase = false;
@@ -1430,12 +1430,12 @@ ipcMain.on('buddy-corner', (_e, side) => {
 
 // ---- hide and seek ----
 
-// It hides mostly off an outer edge of the screen: peeking over the bottom, or round a side.
+// He hides mostly off an outer edge of the screen: peeking over the bottom, or round a side.
 function startHide() {
   if (!win || win.isDestroyed() || dragOffset || fall) return send('buddy-hidden', false);
   const b = win.getBounds();
   const d = screen.getDisplayNearestPoint({ x: Math.round(b.x + WIN_W / 2), y: Math.round(b.y + WIN_H / 2) }).bounds;
-  // an edge only hides it if there isn't another screen on the far side
+  // an edge only hides him if there isn't another screen on the far side
   const open = (x, y) => !screen.getAllDisplays().some((o) => x >= o.bounds.x && x < o.bounds.x + o.bounds.width && y >= o.bounds.y && y < o.bounds.y + o.bounds.height);
   const sides = [];
   if (open(d.x + d.width / 2, d.y + d.height + 40)) sides.push('bottom', 'bottom');
@@ -1492,7 +1492,7 @@ ipcMain.on('album-load', (e) => {
   e.returnValue = life && Array.isArray(life.album) ? life.album.slice(-150) : [];
 });
 
-// its diary, and the ones who stood here before it
+// his diary, and the ones who stood here before him
 ipcMain.on('album-more', (e) => {
   const life = memory['buddy-life'] || {};
   e.returnValue = {
@@ -1517,7 +1517,7 @@ function edit(kind) {
   send('buddy-edit', kind);
 }
 
-// Quit from the menu: give it a few seconds to say goodbye first.
+// Quit from the menu: give him a few seconds to say goodbye first.
 function quitNicely() {
   if (quitting || !win || win.isDestroyed() || !win.isVisible()) return app.quit();
   quitting = true;
@@ -1950,7 +1950,7 @@ if (!app.requestSingleInstanceLock()) {
     trackCursor();
     startWatcher();
     startServer();
-    // a few things about the computer itself that it likes to remark on
+    // a few things about the computer itself that he likes to remark on
     watchDownloads();
     powerMonitor.on('on-battery', () => send('buddy-world', 'battery'));
     powerMonitor.on('on-ac', () => send('buddy-world', 'ac'));

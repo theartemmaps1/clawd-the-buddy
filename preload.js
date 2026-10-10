@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const on = (channel) => (cb) => ipcRenderer.on(channel, (_e, data) => cb(data));
 
 contextBridge.exposeInMainWorld('buddy', {
-  // what it remembered last time, read once before the page starts
+  // what he remembered last time, read once before the page starts
   saved: ipcRenderer.sendSync('buddy-memory-load'),
   save: (key, value) => ipcRenderer.send('buddy-memory-save', String(key), value),
 
