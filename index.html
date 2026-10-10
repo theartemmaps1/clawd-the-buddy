@@ -313,6 +313,17 @@
   body[data-holiday="santa"] .hat, body[data-holiday="bday"] .hat { display: none; }
   .night .santa, .fx-sleep .shades { display: none !important; }
   body[data-focus="1"] .hourglass { display: block; }
+
+  /* glasses from the wardrobe, or because it is getting on a bit; and the egg it keeps warm, which cracks and then rocks */
+  .specs, .egg, .egg .crack { display: none; }
+  .specs rect { fill: none; stroke: #5d4a3a; stroke-width: 3px; }
+  body[data-old="1"] .specs, body[data-glasses="1"] .specs { display: block; }
+  .sulk .specs, .fx-sleep .specs { display: none !important; }
+  body[data-egg="1"] .egg, body[data-egg="2"] .egg, body[data-egg="3"] .egg { display: block; }
+  body[data-egg="2"] .egg .crack, body[data-egg="3"] .egg .crack { display: block; }
+  body[data-egg="3"] .egg { transform-box: fill-box; transform-origin: center bottom; animation: wiggle .3s ease-in-out infinite; }
+  body:not([data-egg=""]) .leaf, body:not([data-egg=""]) .pumpkin { display: none; }
+  body[data-hobby="water"] .egg { display: none; }
   body[data-focus="1"] .hourglass .sand { animation: trickle 2s steps(4) infinite; }
 
   /* sticky note, and the box for writing one */
@@ -430,6 +441,10 @@
   .mini.alert svg    { animation: wiggle .25s ease-in-out infinite; }
   .mini.alert .mskin { filter: saturate(1.35) brightness(1.08) hue-rotate(-8deg); }
   .mini.sad .mskin   { filter: saturate(.45); }
+  /* two sessions after the same file: they glare at each other */
+  .mini.clash { opacity: 1; }
+  .mini.clash svg  { animation: shiver .12s linear infinite; }
+  .mini.clash .meye { fill: #e0483c; }
 
   /* helpers: one little one per subagent, popping out of the buddy and back */
   #helpers { position: absolute; right: 8px; bottom: 34px; display: flex; flex-direction: column-reverse; align-items: flex-end; gap: 4px; pointer-events: none; }
@@ -437,6 +452,10 @@
   .helper svg { width: 18px; height: 14px; display: block; shape-rendering: crispEdges; overflow: visible; animation: bob .5s ease-in-out infinite; }
   .helper .mskin { filter: brightness(1.25) saturate(.8); }
   .helper.out { animation: popin .4s ease-in forwards; }
+  /* each kind of helper is its own shade */
+  .helper.k-explore .mskin { filter: brightness(1.2) saturate(.8) hue-rotate(170deg); }
+  .helper.k-plan .mskin    { filter: brightness(1.25) saturate(.8) hue-rotate(230deg); }
+  .helper.k-check .mskin   { filter: brightness(1.2) saturate(.8) hue-rotate(90deg); }
 
   /* rock, paper, scissors */
   #panel { display: none; gap: 5px; margin-bottom: 6px; padding: 6px; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
@@ -590,6 +609,13 @@
       <g class="hourglass ghost">
         <rect x="4" y="72" width="24" height="4" fill="#8a5a2b" /><rect x="4" y="106" width="24" height="4" fill="#8a5a2b" /><rect x="8" y="76" width="16" height="30" fill="#dff3ff" />
         <rect x="11" y="78" width="10" height="8" fill="#f2c230" /><rect class="sand" x="14" y="86" width="4" height="8" fill="#f2c230" /><rect x="10" y="97" width="12" height="9" fill="#f2c230" />
+      </g>
+
+      <g class="specs ghost"><rect x="63" y="76" width="24" height="28" /><rect x="113" y="76" width="24" height="28" /><rect x="87" y="86" width="26" height="1" /></g>
+      <g class="egg ghost">
+        <rect x="8" y="122" width="20" height="8" fill="#fff6e0" /><rect x="2" y="130" width="32" height="24" fill="#fff6e0" /><rect x="6" y="154" width="24" height="8" fill="#fff6e0" />
+        <rect x="7" y="134" width="7" height="7" fill="#e8b89a" /><rect x="23" y="143" width="6" height="6" fill="#e8b89a" /><rect x="12" y="151" width="4" height="4" fill="#e8b89a" />
+        <g class="crack" fill="#5d4a3a"><rect x="16" y="122" width="3" height="5" /><rect x="19" y="127" width="3" height="5" /><rect x="16" y="132" width="3" height="4" /><rect x="22" y="131" width="4" height="3" /></g>
       </g>
 
       <!-- worn at night, over whatever hat is on -->

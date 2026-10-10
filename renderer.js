@@ -54,6 +54,7 @@ const CFG = {
   quietStart: 0, // quiet hours, e.g. 9 and 12; the same number twice = none
   quietEnd: 0,
   growAt: [25, 150, 500], // finished tasks at which it becomes a kid, a teenager, a grown-up
+  eggAt: 1500, // finished tasks in one lifetime before an egg turns up (0 = never)
 };
 
 let persona = 'cheerful'; // cheerful | sarcastic | shy | dramatic
@@ -333,7 +334,7 @@ function sessionFor(e) {
   const id = e.session || 'default';
   let s = sessions.get(id);
   if (!s) {
-    s = { id, project: '', state: 'idle', last: 0, taskStart: 0, taskTools: 0, ctx: 0, ctxLevel: 0, mode: '', helpers: 0, helperAt: 0, alertAt: 0, ask: '' };
+    s = { id, project: '', state: 'idle', last: 0, taskStart: 0, taskTools: 0, ctx: 0, ctxLevel: 0, mode: '', crew: [], alertAt: 0, ask: '', files: new Map(), clashUntil: 0, lastFile: '', bit: '' };
     sessions.set(id, s);
   }
   s.last = Date.now();
@@ -364,12 +365,13 @@ function miniSvg() {
 function renderMinis() {
   renderSign();
   const list = sessions.size > 1 ? [...sessions.values()].slice(-5) : [];
-  const sig = list.map((s) => `${s.id}:${s.state}:${s.project}`).join('|');
+  const now = Date.now();
+  const sig = list.map((s) => `${s.id}:${s.state}:${s.project}:${s.clashUntil > now}`).join('|');
   if (sig === minisShown) return;
   minisShown = sig;
   minis.replaceChildren(...list.map((s) => {
     const d = document.createElement('div');
-    d.className = 'mini ' + s.state;
+    d.className = 'mini ' + s.state + (s.clashUntil > now ? ' clash' : '');
     d.dataset.id = s.id;
     d.title = s.project || 'Claude session';
     d.appendChild(miniSvg());
@@ -395,21 +397,73 @@ minis.addEventListener('click', (e) => {
 
 const helpersBox = document.getElementById('helpers');
 
+// what a helper carries says what it was sent to do: [x, y, width, height, colour] on the mini
+const HELPER_KIT = {
+  explore: [[13, -1, 4, 4, '#33363d'], [14, 0, 2, 2, '#bfe6ff'], [12, 3, 1, 2, '#33363d']],
+  plan: [[13, -2, 1, 6, '#f2c230'], [13, 4, 1, 1, '#1f1410'], [13, -3, 1, 1, '#e86a9a']],
+  check: [[11, 2, 1, 1, '#3fae5a'], [12, 3, 1, 1, '#3fae5a'], [13, 2, 1, 1, '#3fae5a'], [14, 1, 1, 1, '#3fae5a'], [15, 0, 1, 1, '#3fae5a']],
+  build: [[3, -1, 10, 2, '#f2c230'], [2, 1, 12, 1, '#d9a520']],
+};
+const helperKind = (type) => (/explor|search|research/i.test(type) ? 'explore' : /plan|architect|design/i.test(type) ? 'plan' : /review|verif|test|check|audit/i.test(type) ? 'check' : 'build');
+let crewSeq = 0;
+let crewPeak = 0;
+
+const crewOut = () => [...sessions.values()].flatMap((s) => s.crew);
+
 function syncHelpers() {
-  const total = [...sessions.values()].reduce((n, s) => n + (s.helpers || 0), 0);
+  const crew = crewOut().slice(0, 4);
   const live = [...helpersBox.querySelectorAll('.helper:not(.out)')];
-  while (live.length < Math.min(4, total)) {
-    const d = document.createElement('div');
-    d.className = 'helper';
-    d.appendChild(miniSvg());
-    helpersBox.appendChild(d);
-    live.push(d);
-  }
-  while (live.length > Math.min(4, total)) {
-    const d = live.pop();
+  for (const d of live) {
+    if (crew.some((h) => h.key === d.dataset.key)) continue;
     d.classList.add('out');
     setTimeout(() => d.remove(), 420);
   }
+  for (const h of crew) {
+    if (live.some((d) => d.dataset.key === h.key)) continue;
+    const d = document.createElement('div');
+    d.className = 'helper k-' + h.kind;
+    d.dataset.key = h.key;
+    const el = miniSvg();
+    for (const [x, y, w, height, fill] of HELPER_KIT[h.kind]) {
+      const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      r.setAttribute('x', x); r.setAttribute('y', y); r.setAttribute('width', w); r.setAttribute('height', height);
+      r.setAttribute('fill', fill);
+      el.appendChild(r);
+    }
+    d.appendChild(el);
+    helpersBox.appendChild(d);
+  }
+}
+
+// a subagent sets off: it gets a helper of its own, and a big enough crew makes it the boss
+function helperOut(e, s) {
+  const type = typeof e.agentType === 'string' ? e.agentType : '';
+  if (s.crew.length >= 9) s.crew.shift();
+  s.crew.push({ key: `h${++crewSeq}`, id: e.agentId || '', type, kind: helperKind(type), at: Date.now(), fretted: false });
+  tally('helpers');
+  did('helper');
+  bump('excite', 0.1);
+  const out = crewOut().length;
+  const more = out > crewPeak;
+  crewPeak = Math.max(crewPeak, out);
+  if (out >= 4) earn('crewchief');
+  if (more && out === 3) { bump('pride', 0.3); return pick(['Three helpers out at once! I\'m management now.', 'A whole crew! Everyone know their job?']); }
+  if (more && out === 4) return pick(['Four of them! I need a clipboard.', 'Full crew. Nobody touch anything I wouldn\'t.']);
+  return type ? `Off you go, ${clip(type, 24)}!` : pick(['Off you go, little one!', 'A helper! Go, go, go!', 'Reinforcements!']);
+}
+
+// the one that finished hops back in: by its id, else the oldest of its kind, else the oldest
+function helperBack(e, s) {
+  const i = Math.max(0, e.agentId ? s.crew.findIndex((h) => h.id === e.agentId) : -1, e.agentType ? s.crew.findIndex((h) => h.type === e.agentType) : -1);
+  const [h] = s.crew.splice(i, 1);
+  if (!crewOut().length) crewPeak = 0;
+  if (!h) return pick(['Helper is done.', 'Thanks, helper!']);
+  const gone = Date.now() - h.at;
+  const name = h.type ? clip(h.type, 20) : 'Helper';
+  if (h.fretted) { feel.worry *= 0.7; return `${name} is back! I was getting worried. ${capital(span(gone))}!`; }
+  if (gone > 3 * 60000) return `${name} is back after ${span(gone)}. Tell me everything.`;
+  if (!crewOut().length && crewSeq > 1 && Math.random() < 0.4) return pick(['Everyone\'s home. Good work, team.', 'All back in. Nobody got lost.']);
+  return h.type ? pick([`${name} is back!`, `Thanks, ${name}!`, `Welcome back, ${name}.`]) : pick(['Helper is done.', 'Helper\'s back!', 'Thanks, helper!', 'Welcome back, little one.']);
 }
 
 window.buddy.onFocusResult((ok) => {
@@ -423,7 +477,14 @@ setInterval(() => {
     const quiet = now - s.last;
     if (quiet > 30 * 60000) sessions.delete(s.id);
     else if (quiet > 5 * 60000 && s.state !== 'idle') s.state = 'idle';
-    if (s.helpers && now - s.helperAt > 20 * 60000) s.helpers = 0;
+    // one that never reported back is given up on after half an hour; before that, it frets
+    s.crew = s.crew.filter((h) => now - h.at < 30 * 60000);
+    const late = s.crew.find((h) => !h.fretted && now - h.at > 8 * 60000);
+    if (late) {
+      late.fretted = true;
+      bump('worry', 0.15);
+      if (!fx && !quiet && ageIndex() > 0) say(tagFor(s) + `${late.type ? clip(late.type, 20) : 'My helper'} has been gone ${span(now - late.at)}. I hope it's alright out there.`, 5000);
+    }
   }
   renderMinis();
   syncHelpers();
@@ -462,7 +523,7 @@ const todayKey = () => dateKey(new Date());
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
 const newDay = () => ({ date: todayKey(), tasks: 0, fails: 0, tools: 0, longestMs: 0, longestTools: 0, snacks: 0, pokes: 0, greeted: false, did: {} });
 let day = { ...newDay(), ...load('buddy-day', {}) };
-const life = { tasks: 0, hat: '', color: 'classic', bond: 0, lastSeen: '', note: '', badges: {}, stats: {}, exts: [], album: [], tricks: {}, room: {}, fav: '', favFound: false, recap: '', name: '', words: [], friends: [], born: '', partied: '', lastGift: '', answers: {}, asked: '', secrets: [], secretOn: '', hurtOn: '', wary: false, ...load('buddy-life', {}) };
+const life = { tasks: 0, hat: '', color: 'classic', bond: 0, lastSeen: '', note: '', badges: {}, stats: {}, exts: [], album: [], tricks: {}, room: {}, fav: '', favFound: false, recap: '', name: '', words: [], friends: [], born: '', partied: '', lastGift: '', answers: {}, asked: '', secrets: [], secretOn: '', hurtOn: '', wary: false, scarf: 0, diary: [], omens: {}, projects: {}, extras: {}, gen: 1, genFrom: 0, elders: [], egg: null, ...load('buddy-life', {}) };
 if (!Number.isFinite(life.tasks) || life.tasks < 0) life.tasks = 0;
 if (!Number.isFinite(life.bond) || life.bond < 0) life.bond = 0;
 if (!life.badges || typeof life.badges !== 'object') life.badges = {};
@@ -477,12 +538,29 @@ if (!life.answers || typeof life.answers !== 'object') life.answers = {};
 if (!Array.isArray(life.secrets)) life.secrets = [];
 life.words = Array.isArray(life.words) ? life.words.filter((w) => w && typeof w.t === 'string') : [];
 life.friends = Array.isArray(life.friends) ? life.friends.filter((f) => f && typeof f.n === 'string') : [];
+if (!Number.isFinite(life.scarf) || life.scarf < 0) life.scarf = 0;
+life.diary = Array.isArray(life.diary) ? life.diary.filter((p) => p && typeof p.t === 'string') : [];
+if (!life.omens || typeof life.omens !== 'object') life.omens = {};
+if (!life.omens.runs || typeof life.omens.runs !== 'object') life.omens.runs = {};
+life.omens.held = Array.isArray(life.omens.held) ? life.omens.held.filter((b) => b && typeof b.c === 'string') : [];
+if (!life.projects || typeof life.projects !== 'object') life.projects = {};
+if (!life.extras || typeof life.extras !== 'object') life.extras = {};
+life.elders = Array.isArray(life.elders) ? life.elders.filter((f) => f && typeof f.n === 'string') : [];
+if (!Number.isFinite(life.gen) || life.gen < 1) life.gen = 1;
+if (!Number.isFinite(life.genFrom) || life.genFrom < 0 || life.genFrom > life.tasks) life.genFrom = 0;
+if (!life.egg || typeof life.egg !== 'object') life.egg = null;
 if (!day.did || typeof day.did !== 'object') day.did = {};
 const saveLife = () => store('buddy-life', life);
+// tasks finished in this lifetime; `life.tasks` counts every generation's
+const genTasks = () => Math.max(0, life.tasks - life.genFrom);
 const history = load('buddy-history', {}); // date -> tasks finished that day
 
+let unwritten = null; // a day that is over and not in the diary yet
+
 function rollDay() {
-  if (day.date !== todayKey()) day = newDay();
+  if (day.date === todayKey()) return;
+  unwritten = day;
+  day = newDay();
 }
 rollDay();
 
@@ -546,20 +624,27 @@ const COLORS = [
   { id: 'grape', label: 'Grape', at: 700, hex: '#9b6fd6' },
   { id: 'gold', label: 'Gold', at: 1500, hex: '#e0b030' },
 ];
+// worn as well as a hat, each on or off by itself
+const EXTRAS = [
+  { id: 'glasses', label: 'Glasses', at: 200 },
+];
 const unlocked = (u) => !!u && life.tasks >= u.at;
-const nextUnlock = () => [...HATS, ...COLORS].filter((u) => !unlocked(u)).sort((a, b) => a.at - b.at)[0];
+const nextUnlock = () => [...HATS, ...COLORS, ...EXTRAS].filter((u) => !unlocked(u)).sort((a, b) => a.at - b.at)[0];
 
 function applyLook() {
   if (!unlocked(HATS.find((h) => h.id === life.hat))) life.hat = '';
   const color = COLORS.find((c) => c.id === life.color && unlocked(c)) || COLORS[0];
   life.color = color.id;
   document.body.dataset.hat = life.hat;
+  for (const x of EXTRAS) document.body.dataset[x.id] = life.extras[x.id] && unlocked(x) ? '1' : '';
   document.body.dataset.bond = bondLevel();
   document.body.style.setProperty('--skin', color.hex);
   store('buddy-life', life);
-  const item = (u) => ({ id: u.id, label: u.label, at: u.at, unlocked: unlocked(u) });
+  const held = (u) => life.omens.held.find((b) => b.c === `hat:${u.id}`);
+  const item = (u) => ({ id: u.id, label: u.label + (held(u) ? (held(u).good ? ' (lucky)' : ' (cursed)') : ''), at: u.at, unlocked: unlocked(u) });
   window.buddy.wardrobe({
     tasks: life.tasks, hat: life.hat, color: life.color, hats: HATS.map(item), colors: COLORS.map(item),
+    extras: EXTRAS.map((x) => ({ ...item(x), on: !!life.extras[x.id] })),
     badges: BADGES.map((b) => ({ label: `${b.name} (${b.hint})`, earned: !!life.badges[b.id] })),
     room: ROOM.map((r) => ({ id: r.id, label: r.label, need: r.need, unlocked: badgeCount() >= r.need, on: life.room[r.id] !== false })),
     name: life.name,
@@ -573,21 +658,30 @@ function applyLook() {
 
 // A finished task may cross a threshold; the newest thing gets put on straight away.
 function checkUnlocks(before) {
-  const got = [...HATS, ...COLORS].filter((u) => u.at > before && u.at <= life.tasks).pop();
+  const got = [...HATS, ...COLORS, ...EXTRAS].filter((u) => u.at > before && u.at <= life.tasks).pop();
   if (!got) return null;
-  if (HATS.includes(got)) life.hat = got.id;
+  if (EXTRAS.includes(got)) life.extras[got.id] = true;
+  else if (HATS.includes(got)) life.hat = got.id;
   else life.color = got.id;
   return got;
 }
 
 window.buddy.onWear((w) => {
   if (!w) return;
+  const before = life.hat;
   if (typeof w.hat === 'string') life.hat = w.hat;
   if (typeof w.color === 'string') life.color = w.color;
+  if (EXTRAS.some((x) => x.id === w.extra)) life.extras[w.extra] = !life.extras[w.extra];
   applyLook();
   touch();
   setFx('spin', 700);
-  say(pick(['How do I look?', 'Ooh, fancy.', 'Very me.', 'Stylish, right?', 'New look, same me.', 'Fashion!']), 2500);
+  // it has views on some of these hats
+  const off = before !== life.hat && life.omens.held.find((b) => b.good && b.c === `hat:${before}`);
+  const on = before !== life.hat && life.omens.held.find((b) => b.c === `hat:${life.hat}`);
+  say(on && !on.good ? 'Not that one! It\'s cursed! …fine. You\'ll see.'
+    : on ? 'The lucky one! Good choice.'
+    : off ? 'My lucky hat! …okay. But if anything breaks, that\'s on you.'
+    : pick(['How do I look?', 'Ooh, fancy.', 'Very me.', 'Stylish, right?', 'New look, same me.', 'Fashion!']), 3000);
 });
 
 const span = (ms) => (ms < 90000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60000)} min`);
@@ -711,6 +805,7 @@ function hurtBy(n) {
 
 // made up with: it will not be wary of you tomorrow
 function forgiven() {
+  if (day.did.hurt && !day.did.madeup) did('madeup');
   if (!life.wary) return;
   life.wary = false;
   saveLife();
@@ -767,6 +862,7 @@ function comfort(why, tag = '') {
   setFx('hug', 2600);
   sfx('pet');
   say(tag + pick(ageIndex() === 0 ? COMFORT_BABY : ageIndex() === 2 && Math.random() < 0.5 ? COMFORT_TEEN : COMFORT[why]), 7000);
+  did('comfort');
   return true;
 }
 
@@ -797,6 +893,10 @@ const BADGES = [
   { id: 'showoff', name: 'Show-off', hint: 'teach it every trick' },
   { id: 'favourite', name: 'Favourite food', hint: 'find out what it likes best' },
   { id: 'uptop', name: 'Up top', hint: '25 high fives' },
+  { id: 'knitter', name: 'Knit wit', hint: 'knit 10 m of scarf' },
+  { id: 'family', name: 'Next of kin', hint: 'hatch an egg' },
+  { id: 'crewchief', name: 'Crew chief', hint: '4 helpers out at once' },
+  { id: 'delegator', name: 'Many hands', hint: 'send out 100 helpers' },
 ];
 // lifetime counters and the badges they earn: [how many, badge id]
 const COUNT_BADGES = {
@@ -811,6 +911,7 @@ const COUNT_BADGES = {
   finds: [[5, 'seeker']],
   rpsWins: [[10, 'rpschamp']],
   fives: [[25, 'uptop']],
+  helpers: [[100, 'delegator']],
 };
 
 // `photographed`: the moment already has its own card in the album
@@ -1131,8 +1232,10 @@ window.buddy.onGoodbye(() => {
 
 const AGES = ['baby', 'kid', 'teen', 'grown'];
 const AGE_NAMES = ['baby', 'kid', 'teenager', 'grown-up'];
-const ageIndex = () => Math.min(3, CFG.growAt.filter((t) => life.tasks >= t).length);
-const showAge = () => { document.body.dataset.age = AGES[ageIndex()]; };
+const ageIndex = () => Math.min(3, CFG.growAt.filter((t) => genTasks() >= t).length);
+// long after it has grown up it is getting on a bit: spectacles
+const isOld = () => CFG.eggAt > 0 && genTasks() >= CFG.eggAt;
+const showAge = () => { document.body.dataset.age = AGES[ageIndex()]; document.body.dataset.old = isOld() ? '1' : ''; };
 // a baby has few words; these stand in for a personality until it is a kid
 const BABY = {
   pokeIdle: ['Ba!', 'Goo?', 'Eee!', '*giggle*', 'Boop!', 'Hi! Hi!'],
@@ -1155,7 +1258,8 @@ function grewUp() {
   sfx('level');
   confetti(30);
   setFx('stretch', 2500);
-  snap('grow', `Grew up: ${AGE_NAMES[i]}`, `${plural(life.tasks, 'task')} together so far.`);
+  did('grew');
+  snap('grow', `Grew up: ${AGE_NAMES[i]}`, `${plural(genTasks(), 'task')} together so far.`);
   say(i === 3 ? 'Look at me. All grown up! Sorry about the attitude. …I still want snacks.'
     : i === 2 ? 'I got taller! And my voice went funny. Don\'t tell me what to do.'
     : 'I grew! I\'m a big kid now! I know so many more words!', 6000);
@@ -1263,11 +1367,11 @@ const QUESTIONS = [
   { id: 'here', q: 'Do you like having me here?', a: ['Yes', 'No'], re: ['♥ I like being here too.', 'Oh. …I\'ll try to be quieter.'], later: ['You said you like having me here. I think about that a lot.', 'I\'m being extra quiet. Did you notice?'] },
 ];
 
-function ask() {
+// `q.act` makes it a question that does something, not one whose answer it remembers
+function ask(q = pick(QUESTIONS.filter((x) => !(x.id in life.answers)))) {
   const now = Date.now();
-  const q = pick(QUESTIONS.filter((x) => !(x.id in life.answers)));
   asking = q;
-  life.asked = todayKey();
+  if (!q.act) life.asked = todayKey();
   saveLife();
   lastActivity = now;
   hushUntil = now + 12000;
@@ -1307,6 +1411,7 @@ function answer(b) {
   if (b.dataset.answer === undefined) { endAsk(false); return; }
   const i = Number(b.dataset.answer);
   touch();
+  if (q.act) { endAsk(true); q.act(i); return; }
   life.answers[q.id] = i;
   endAsk(true);
   const stung = q.id === 'here' && i === 1;
@@ -1443,6 +1548,8 @@ const GUEST_LINES = {
   shy: ['H-hi… thanks for having me.', 'Is it okay if I stand here?', 'Your human seems nice…', 'I brought… um. Nothing. Sorry.', 'This is nice…'],
   dramatic: ['I have JOURNEYED across the network!', 'What a MAGNIFICENT desktop!', 'Friend! At LAST we meet again!', 'Such pixels! Such splendour!', 'I shall tell TALES of this visit!'],
 };
+// the ones who stood here before it come back to check on things
+const ELDER_LINES = ['Look how you\'ve grown!', 'Is that my scarf? It\'s longer.', 'Are they feeding you properly?', 'I used to stand right there.', 'Keep an eye on the human for me.', 'Still the same taskbar, I see.', 'You have my eyes. Both of them.'];
 const HOST_LINES = ['Hehe, right?', 'Tell me everything!', 'How\'s your human?', 'Mine fixed three bugs today.', 'Want to see my bed?', 'Do you get snacks too?', 'Stay a bit longer!'];
 const visitorEl = document.getElementById('visitor');
 let nextVisit = Date.now() + (20 + Math.random() * 40) * 60000;
@@ -1451,7 +1558,7 @@ function guestSays() {
   visitorEl.classList.remove('talk');
   void visitorEl.offsetWidth; // so the little hop replays
   visitorEl.classList.add('talk');
-  say(`${guest.f.n}: ${pick(GUEST_LINES[guest.f.p] || GUEST_LINES.cheerful)}`, 3800);
+  say(`${guest.f.n}: ${pick(guest.f.gen ? ELDER_LINES : GUEST_LINES[guest.f.p] || GUEST_LINES.cheerful)}`, 3800);
 }
 
 function startVisit(f) {
@@ -1499,9 +1606,10 @@ function endVisit() {
     render();
   }, 1600);
   bondUp(0.5);
+  did('guest');
   if (!f.met) {
     f.met = true;
-    snap('visit', `${f.n} came over`, 'A friend dropped by to play.');
+    snap('visit', `${f.n} came over`, f.gen ? 'Back to see how the little one is getting on.' : 'A friend dropped by to play.');
   }
   saveLife();
   if (!quiet && fx !== 'sleep') { setFx('wave', 1500); say(`Bye, ${f.n}! Come again soon!`, 3000); }
@@ -1591,6 +1699,7 @@ function sendRoom() {
     on: ROOM.filter((r) => badgeCount() >= r.need && life.room[r.id] !== false).map((r) => r.id),
     plant: plantStage(),
     night: isNight(),
+    scarf: scarfStage(),
   });
 }
 
@@ -1836,6 +1945,7 @@ function startJob() {
   jobTimer = setTimeout(() => {
     if (state !== 'working') return;
     waiting = pick(['knit', 'tap']);
+    knitStart = waiting === 'knit' ? Date.now() : 0;
     render();
     say(waiting === 'knit' ? pick(['This one\'s taking a while. I\'ll knit.', 'Long one. Good thing I brought my knitting.', '*click click* …knit one, purl one…'])
       : pick(['*taps foot*', 'Any minute now…', 'Still going? Still going.']), 4000);
@@ -1846,6 +1956,8 @@ function startJob() {
 function endJob() {
   clearTimeout(jobTimer);
   const waited = waiting ? Date.now() - jobStart : 0;
+  if (waiting === 'knit' && knitStart) knitted(Date.now() - knitStart);
+  knitStart = 0;
   waiting = '';
   jobStart = 0;
   return waited;
@@ -2010,6 +2122,383 @@ function startHobby() {
   say(hobby === 'water' && run >= 3 ? `Day ${run} of our streak. Look how tall it's getting!` : pick(HOBBIES[hobby].lines), 3500);
 }
 
+// ---- the scarf: whatever it knits through a long command stays knitted ----
+
+const SCARF_MARKS = [1, 5, 10, 25, 50, 100, 250, 500]; // metres that get a photo
+let knitStart = 0;
+const scarfM = () => life.scarf / 600; // ten minutes of knitting to the metre
+const scarfLen = () => (scarfM() < 1 ? `${Math.round(scarfM() * 100)} cm` : `${scarfM().toFixed(1)} m`);
+// how much of it is lying about the room
+const scarfStage = () => { const m = scarfM(); return m >= 30 ? 4 : m >= 10 ? 3 : m >= 2 ? 2 : m >= 0.2 ? 1 : 0; };
+
+function knitted(ms) {
+  const before = scarfM();
+  life.scarf += ms / 1000;
+  day.knit = (day.knit || 0) + ms / 1000;
+  saveLife();
+  sendRoom();
+  const mark = SCARF_MARKS.filter((m) => m > before && m <= scarfM()).pop();
+  if (!mark) return;
+  if (mark >= 10) earn('knitter', true);
+  snap('scarf', `${mark} m of scarf`, 'Knitted one slow command at a time.');
+  setTimeout(() => say(pick([`My scarf is ${mark} m long now! I may have a problem.`, `${mark} m of scarf! Who is it for? Nobody knows.`]), 5000), 3800);
+}
+
+// ---- diary: a few lines about each day, written once the day is over ----
+
+const DIARY_END = {
+  cheerful: ['A good day.', 'I like it here.', 'Tomorrow will be even better.'],
+  sarcastic: ['Thrilling stuff.', 'I am told this is a career.', 'Anyway.'],
+  shy: ['I hope I did okay.', 'Please don\'t read this.', 'That\'s all. Sorry.'],
+  dramatic: ['What a SAGA.', 'History will remember this day.', 'I am worn out by my own greatness.'],
+};
+
+function writeDiary() {
+  const d = unwritten;
+  unwritten = null;
+  if (!d || !isDate(d.date) || life.diary.some((page) => page.d === d.date)) return;
+  const seen = d.did && typeof d.did === 'object' ? d.did : {};
+  if (!d.tasks && !d.fails && !d.pokes && !d.snacks && !seen.heart) return; // nobody was about
+  let text;
+  if (ageIndex() === 0) {
+    text = [seen.hatched ? 'New! Me!' : '', d.tasks ? `Did ${d.tasks}!` : 'Ba.', d.fails ? 'Uh oh.' : '', d.snacks ? 'Num num.' : '', seen.hurt ? 'Ow.' : seen.heart ? 'Pat pat.' : '', 'Sleepy now.'].filter(Boolean).join(' ');
+  } else {
+    const open = !d.tasks && !d.fails ? pick(['A quiet day. Nobody needed me for anything.', 'No work today. I watched the cursor go by.'])
+      : d.fails >= 4 && d.fails > d.tasks * 2 ? `A hard day. ${capital(plural(d.fails, 'thing'))} went wrong, and we still finished ${plural(d.tasks, 'task')}.`
+      : d.tasks >= 12 ? `What a day! ${d.tasks} tasks finished.`
+      : d.tasks && !d.fails ? `${capital(plural(d.tasks, 'task'))} today and nothing went wrong. Suspicious.`
+      : `We finished ${plural(d.tasks, 'task')} today, with ${plural(d.fails, 'oopsie')}.`;
+    const top = Object.entries(d.proj && typeof d.proj === 'object' ? d.proj : {}).sort((a, b) => b[1] - a[1])[0];
+    const belief = life.omens.held[life.omens.held.length - 1];
+    // the most memorable things first; three is enough for one page
+    const lines = [
+      seen.hurt && (seen.madeup ? 'They were rough with me today. They said sorry after, and I forgave them.' : 'They were rough with me today. I went to bed sad.'),
+      seen.egg && 'I found an egg. I don\'t know whose it is. I am keeping it warm.',
+      seen.grew && 'I grew up a bit today. Everything looks smaller.',
+      seen.unlock && 'I got something new to wear!',
+      seen.comfort && 'They looked worn out, so I gave them a hug. I think it helped.',
+      seen.tea && 'Three things broke in a row, so I put the kettle on.',
+      seen.clash && 'Two Claudes went for the same file at once. I told on them.',
+      seen.helper >= 4 && `I sent ${seen.helper} helpers out and every one of them came back.`,
+      seen.omen && belief && `I worked something out today: ${omenText(belief)}.`,
+      d.longestMs > 10 * 60000 && `One job took ${span(d.longestMs)}.`,
+      d.knit > 60 && `I knitted through the slow bits. The scarf is ${scarfLen()} now.`,
+      seen.pr && 'We opened a pull request and I let off a party popper.',
+      seen.fixed && 'The tests went red, and then we made them green again.',
+      top && Object.keys(life.projects).length > 1 && (opinions().dread === top[0] ? `We were in ${clip(top[0], 24)} again. Things break in there.` : `Mostly in ${clip(top[0], 24)}.`),
+      seen.commit >= 3 && `${seen.commit} commits. I planted a flag for every one.`,
+      seen.fav && 'They fed me my favourite!',
+      d.snacks >= 3 && `${d.snacks} snacks. A good day for snacks.`,
+      d.pokes >= 15 && `I was poked ${d.pokes} times. I counted.`,
+      seen.guest && 'Somebody came round to see me.',
+      seen.late && 'We stayed up much too late.',
+      seen.heart >= 3 && 'Lots of pets.',
+    ].filter(Boolean).slice(0, 3);
+    const end = seen.hurt && !seen.madeup ? 'I hope tomorrow is gentler.'
+      : ageIndex() === 2 ? pick(['Whatever.', 'Nobody reads this anyway.', 'DO NOT read my diary.'])
+      : pick(DIARY_END[persona] || DIARY_END.cheerful);
+    text = [open, ...lines, end].join(' ');
+  }
+  life.diary.push({ d: d.date, t: text.slice(0, 320) });
+  if (life.diary.length > 120) life.diary.shift();
+  saveLife();
+}
+
+// ---- opinions: it gets to know each project by its folder name, and takes sides ----
+
+function proj(name) {
+  if (!name || name === '__proto__') return null;
+  let p = life.projects[name];
+  if (!p || typeof p !== 'object') {
+    const names = Object.keys(life.projects);
+    // forty is plenty: the one it has not seen for longest makes room
+    if (names.length >= 40) delete life.projects[names.sort((a, b) => String((life.projects[a] || {}).last).localeCompare(String((life.projects[b] || {}).last)))[0]];
+    p = life.projects[name] = { t: 0, f: 0, last: '', files: {} };
+  }
+  if (!p.files || typeof p.files !== 'object') p.files = {};
+  return p;
+}
+
+// its favourite is where the most gets done; the one it dreads is where the most goes wrong
+function opinions() {
+  const known = Object.entries(life.projects).filter(([, p]) => p && p.t + p.f >= 8);
+  const dread = known.filter(([, p]) => p.f >= 8 && p.f > p.t * 1.5).sort((a, b) => b[1].f / (b[1].t + 1) - a[1].f / (a[1].t + 1))[0];
+  const fav = known.filter(([n, p]) => p.t >= 10 && !(dread && n === dread[0])).sort((a, b) => b[1].t - a[1].t)[0];
+  return { fav: fav ? fav[0] : '', dread: dread ? dread[0] : '' };
+}
+
+// what it has to say on walking into a project, the first time each day
+function projectHello(s) {
+  const p = proj(s.project);
+  if (!p) return '';
+  const was = p.last;
+  p.last = todayKey();
+  saveLife();
+  if (ageIndex() === 0 || was === p.last) return '';
+  const n = clip(s.project, 20);
+  if (!was) return Object.keys(life.projects).length > 1 ? pick([`${n}? I've never been in here before. Ooh.`, `A new project! Hello, ${n}.`]) : '';
+  const gap = isDate(was) ? Math.round((new Date(p.last) - new Date(was)) / 864e5) : 0;
+  if (gap >= 14) return pick([`${n}! We haven't been in here for ${gap} days. I missed it.`, `Oh, ${n}! It's been ${gap} days. Is it okay?`]);
+  const o = opinions();
+  if (o.dread === s.project) {
+    bump('worry', 0.2);
+    return pick([`…oh. ${n}. Deep breath.`, `${n} again. Things break in here. Stay close.`, `Not ${n}… okay. I'm brave.`]);
+  }
+  if (o.fav === s.project && Math.random() < 0.6) {
+    bump('joy', 0.2);
+    return pick([`${n}! My favourite project.`, `Ooh, ${n}! I like it in here.`, `${n}! Good things happen in this one.`]);
+  }
+  return '';
+}
+
+// a failure gets pinned on whichever file was touched last
+function blame(s) {
+  const p = proj(s.project);
+  if (!p) return;
+  p.f++;
+  const file = s.lastFile;
+  if (file && file !== '__proto__') {
+    p.files[file] = (Number(p.files[file]) || 0) + 1;
+    const others = Object.keys(p.files).filter((f) => f !== file);
+    if (others.length >= 12) delete p.files[others.sort((a, b) => p.files[a] - p.files[b])[0]];
+  }
+  saveLife();
+}
+
+// the file that gets the blame most often bites, and it says so once a session
+function biteLine(e, s) {
+  const file = ['Edit', 'Write', 'NotebookEdit'].includes(e.tool) ? base(e.detail) : '';
+  const p = file && ageIndex() > 0 && s.bit !== file ? proj(s.project) : null;
+  if (!p) return '';
+  const worst = Object.keys(p.files).sort((a, b) => p.files[b] - p.files[a])[0];
+  if (worst !== file || p.files[file] < 6) return '';
+  s.bit = file;
+  bump('worry', 0.1);
+  return pick([`Oh no, ${clip(file, 26)} again. That one bites.`, `${clip(file, 26)}. Careful. We have history.`, `Not ${clip(file, 26)}… okay. Gloves on.`]);
+}
+
+// ---- two sessions, one file: it tells on them ----
+
+const clashes = new Map(); // the pair and the file -> when it last said so
+
+function clash(e, s) {
+  const key = String(e.detail || '').replace(/\\/g, '/').toLowerCase();
+  if (!key) return '';
+  const now = Date.now();
+  if (s.files.size > 300) s.files.clear();
+  s.files.set(key, now);
+  const other = [...sessions.values()].find((o) => o !== s && o.files.get(key) > now - 15 * 60000);
+  if (!other) return '';
+  const pair = [s.id, other.id].sort().join('|') + '|' + key;
+  if (now - (clashes.get(pair) || 0) < 10 * 60000) return '';
+  if (clashes.size > 100) clashes.clear();
+  clashes.set(pair, now);
+  // the two minis glare at each other for a bit
+  s.clashUntil = other.clashUntil = now + 8000;
+  setTimeout(renderMinis, 8200);
+  did('clash');
+  bump('worry', 0.25);
+  sfx('warn');
+  setFx('surprise', 900);
+  return `Careful! Two Claudes are both editing ${clip(base(e.detail), 26)}. One of them is in for a surprise.`;
+}
+
+// ---- superstitions: the same thing three times running, and it believes ----
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+let lastFed = 0;
+let lastPet = 0;
+let perched = false;
+let lastOmenWord = 0;
+
+// what is true right now that luck could be pinned on
+function signs() {
+  const now = Date.now();
+  return [
+    life.hat && `hat:${life.hat}`,
+    `day:${new Date().getDay()}`,
+    now - lastFed < 15 * 60000 && 'fed',
+    now - lastPet < 5 * 60000 && 'pet',
+    perched && 'perch',
+    isNight() && 'night',
+  ].filter(Boolean);
+}
+
+const omenHat = (b) => { const hat = HATS.find((h) => `hat:${h.id}` === b.c); return hat ? hat.label.toLowerCase() : 'hat'; };
+const omenDay = (b) => DAY_NAMES[Number(b.c.slice(4))] || 'Monday';
+
+// a belief, in its own words
+function omenText(b) {
+  const kind = b.c.split(':')[0];
+  if (kind === 'hat') return `the ${omenHat(b)} is ${b.good ? 'lucky' : 'cursed'}`;
+  if (kind === 'day') return `${omenDay(b)}s are ${b.good ? 'lucky' : 'cursed'}`;
+  if (kind === 'fed') return b.good ? 'things go right when I have eaten' : 'a full tummy is bad luck';
+  if (kind === 'pet') return b.good ? 'a pet first brings luck' : 'pets before work are bad luck';
+  if (kind === 'perch') return b.good ? 'sitting on a window is lucky' : 'sitting on a window is bad luck';
+  return b.good ? 'the code behaves after dark' : 'nothing good happens after dark';
+}
+
+function believe(b) {
+  life.omens.held.push(b);
+  did('omen');
+  applyLook(); // saves, and the wardrobe says which hat it is
+  setTimeout(() => {
+    hushUntil = Date.now() + 8000;
+    setFx('quest', 1500);
+    sfx('level');
+    snap('omen', 'A belief', `${capital(omenText(b))}. Three times in a row can't be chance.`);
+    say(`Three times in a row! That settles it: ${omenText(b)}. This is science.`, 7000);
+  }, 3600);
+}
+
+// Something went right or wrong (a test run, a clean task, three failures in a row). Whatever
+// was true at the time gets the credit or the blame. `hush`: keep count, say nothing.
+function omen(good, hush) {
+  if (ageIndex() === 0) return;
+  const now = signs();
+  let word = '';
+  for (const b of [...life.omens.held]) {
+    if (!now.includes(b.c)) {
+      // it went wrong without the lucky thing: it did warn you
+      if (b.good && !good) word = word || pick([`I TOLD you. ${capital(omenText(b))}.`, `Well, what did you expect? ${capital(omenText(b))}.`]);
+      continue;
+    }
+    if (b.good === good) {
+      b.kept = (Number(b.kept) || 0) + 1;
+      if (Math.random() < 0.35) word = word || pick([`See? ${capital(omenText(b))}.`, `Works every time. ${capital(omenText(b))}.`]);
+      continue;
+    }
+    b.broke = (Number(b.broke) || 0) + 1;
+    if (b.broke >= 5 && b.broke > (Number(b.kept) || 0)) {
+      // let down too often: it stops believing
+      life.omens.held = life.omens.held.filter((x) => x !== b);
+      applyLook();
+      word = `…maybe it was never true that ${omenText(b)}. Don't tell anyone I said so.`;
+    } else if (Math.random() < 0.5) {
+      word = word || pick(['That one doesn\'t count.', 'A fluke. It still works.', 'Hm. It must be tired today.']);
+    }
+  }
+  let fresh = null;
+  for (const c of now) {
+    if (life.omens.held.some((b) => b.c === c)) continue;
+    const run = Number(life.omens.runs[c]) || 0;
+    const next = good ? Math.max(run, 0) + 1 : Math.min(run, 0) - 1;
+    life.omens.runs[c] = Math.abs(next) < 3 ? next : 0;
+    // not every coincidence takes; the rarer the circumstance, the likelier it is to
+    const odds = c === 'fed' || c === 'pet' || c === 'perch' ? 0.6 : 0.25;
+    if (Math.abs(next) >= 3 && !fresh && life.omens.held.length < 3 && Math.random() < odds) fresh = { c, good, on: todayKey(), kept: 0, broke: 0 };
+  }
+  saveLife();
+  if (fresh) { believe(fresh); return; }
+  if (!word || hush || quiet || Date.now() - lastOmenWord < 10 * 60000) return;
+  lastOmenWord = Date.now();
+  setTimeout(() => { if (!quiet) say(word, 4500); }, 3400);
+}
+
+// Before a test run it puts its luck in order: the lucky hat goes on, the cursed one comes
+// off, and anything else it can only fret about.
+function omenBefore() {
+  if (ageIndex() === 0) return '';
+  const now = signs();
+  for (const b of life.omens.held) {
+    if (b.good === now.includes(b.c)) continue; // as it should be
+    const kind = b.c.split(':')[0];
+    if (kind === 'hat') {
+      const hat = HATS.find((h) => `hat:${h.id}` === b.c);
+      if (b.good && !unlocked(hat)) continue;
+      life.hat = b.good ? hat.id : '';
+      applyLook();
+      return b.good ? `Tests? Wait wait wait. Lucky ${omenHat(b)} first.` : `Not in the ${omenHat(b)}! It's cursed. Off it comes.`;
+    }
+    if (Date.now() - lastOmenWord < 10 * 60000) continue;
+    lastOmenWord = Date.now();
+    if (b.good) {
+      return kind === 'pet' ? 'Tests! Quick, a pet for luck!' : kind === 'fed' ? 'Tests on an empty tummy? Risky…'
+        : kind === 'perch' ? 'I ought to be up on a window for this…' : kind === 'day' ? `Tests, and it isn't even ${omenDay(b)}. Hmm.` : 'Tests in daylight. Brave.';
+    }
+    return kind === 'pet' ? 'Tests straight after a pet? Bad luck…' : kind === 'fed' ? 'Tests on a full tummy? Bad luck…'
+      : kind === 'perch' ? 'I shouldn\'t be up here for this…' : kind === 'day' ? `Tests on a ${omenDay(b)}? You know how I feel about ${omenDay(b)}s.` : 'Tests after dark. Nothing good happens after dark.';
+  }
+  return '';
+}
+
+// ---- generations: long after it has grown up an egg turns up, and one day a new one hatches ----
+
+const EGG_WARM = 30; // finished tasks (a pet counts for half) before it is ready
+
+function showEgg() {
+  const egg = life.egg;
+  document.body.dataset.egg = !egg ? '' : egg.warm >= EGG_WARM ? '3' : egg.warm >= EGG_WARM * 0.6 ? '2' : '1';
+}
+
+function findEgg() {
+  life.egg = { on: todayKey(), warm: 0, asked: '' };
+  did('egg');
+  showEgg();
+  lastActivity = Date.now();
+  hushUntil = lastActivity + 12000;
+  setFx('surprise', 900);
+  sfx('level');
+  snap('egg', 'An egg', 'It turned up one day. Nobody knows where from.');
+  say('…there\'s an egg. I didn\'t— I don\'t know where it came from. I\'m keeping it warm.', 9000);
+}
+
+function warmEgg(n) {
+  if (!life.egg) return;
+  const was = document.body.dataset.egg;
+  life.egg.warm = Math.min(EGG_WARM, (Number(life.egg.warm) || 0) + n);
+  showEgg();
+  saveLife();
+  const stage = document.body.dataset.egg;
+  if (stage !== was) setTimeout(() => say(stage === '3' ? 'The egg is moving! It\'s nearly time.' : 'The egg made a noise. A small one. I heard it.', 5000), 4200);
+}
+
+// Hatching is for good, so it asks first, and only once a day.
+function askHatch() {
+  life.egg.asked = todayKey();
+  ask({
+    q: 'The egg is ready. If it hatches, the little one takes over here and I retire to the album. Shall we?',
+    a: ['Hatch it', 'Not yet'],
+    act: (i) => (i === 0 ? hatch() : say('Okay. I\'ll keep it warm, and ask again tomorrow.', 5000, true)),
+  });
+}
+
+// The old one goes into the family tree and comes to visit. The little one starts again as a
+// baby with the family scarf, the room, the wardrobe, one trick and one belief handed down.
+function hatch() {
+  if (!life.egg) return;
+  const now = Date.now();
+  const old = { n: codeName(life.name), c: life.color, h: life.hat, a: 3, p: persona, gen: life.gen, born: life.born, left: todayKey(), tasks: genTasks() };
+  life.elders.push(old);
+  if (life.elders.length > 12) life.elders.shift();
+  const belief = life.omens.held[0];
+  life.omens = { runs: {}, held: belief ? [{ ...belief, from: old.n, kept: 0, broke: 0 }] : [] };
+  const known = TRICKS.filter((t) => knows(t.id));
+  life.tricks = known.length ? { [known[Math.floor(Math.random() * known.length)].id]: TRICK_REPS } : {};
+  life.gen++;
+  life.genFrom = life.tasks;
+  life.egg = null;
+  life.name = '';
+  life.born = life.partied = todayKey();
+  life.bond = Math.min(life.bond, BOND_AT[2]); // it has heard all about you
+  life.wary = false;
+  Object.assign(feel, { joy: 0.6, energy: 1, irritation: 0, lonely: 0, worry: 0, hunger: 0.5, fear: 0, shame: 0, excite: 0.5, pride: 0, love: 0.5, envy: 0, boredom: 0, hurt: 0 });
+  did('hatched');
+  lastActivity = now;
+  hushUntil = now + 16000;
+  showEgg();
+  showAge();
+  applyLook();
+  saveFeel();
+  sfx('level');
+  confetti(40);
+  setFx('spin', 700);
+  snap('hatch', `Generation ${life.gen}`, `${old.n}'s egg hatched. ${old.n} has moved into the album.`);
+  earn('family', true);
+  say('…! Ba? Ba!', 4000);
+  setTimeout(() => say(`${old.n} left a note: "Look after them for me. The scarf is theirs now. I'll visit."`, 9000), 4500);
+}
+
 // ---- Claude Code hook events ----
 
 window.buddy.onEvent((e) => {
@@ -2030,6 +2519,7 @@ window.buddy.onEvent((e) => {
   const wasPlan = s.mode === 'plan';
   if (typeof e.mode === 'string' && e.mode) s.mode = e.mode;
   const isPlan = s.mode === 'plan';
+  let word = ''; // something more pressing than the usual line
 
   switch (e.event) {
     case 'SessionStart':
@@ -2048,6 +2538,7 @@ window.buddy.onEvent((e) => {
       if (life.note) setTimeout(() => say(`Don't forget: ${life.note}`, 6000), 3200);
       setState('happy');
       tell(wasLonely ? 'You\'re back! I missed you.'
+        : (word = projectHello(s)) ? word
         : e.source === 'resume' ? pick(['Picking up where we left off!', 'Oh, this one again! I remember.'])
         : isNight() ? '*yawn* Up late, huh? Okay, I\'m in.'
         : bondLevel() >= 3 && Math.random() < 0.5 ? pick(['My favourite human is back!', 'There you are! I saved your spot.'])
@@ -2087,19 +2578,29 @@ window.buddy.onEvent((e) => {
       prop = PROPS[e.tool] || '';
       setState('working');
       if (isCmd) startJob();
-      if (['Edit', 'Write', 'NotebookEdit'].includes(e.tool)) did('file');
-      else if (prop === 'globe') did('globe');
+      if (['Edit', 'Write', 'NotebookEdit'].includes(e.tool)) {
+        did('file');
+        s.lastFile = base(e.detail);
+        word = clash(e, s);
+      } else if (prop === 'globe') {
+        did('globe');
+      }
       if (kind === 'danger') {
         bump('worry', 0.12);
         bump('fear', 0.65);
         if (!fx) setFx('surprise', 900);
         tell(pick(['Eep… careful with that one!', 'That one bites. Double-check?', 'I can\'t look…', 'Are we sure about this?', 'Measure twice, delete once.']) + ` $ ${clip(e.detail, 40)}`, 5000);
+      } else if (word) {
+        say(word, 8000);
+      } else if (kind === 'test' && (word = omenBefore())) {
+        bump('worry', 0.1);
+        tell(word, 4500);
       } else if (e.tool === 'ExitPlanMode') {
         tell(pick(['The plan is ready! Go have a look.', 'Blueprint finished. What do you think?']), 5000);
       } else if (kind === 'install') {
         tell(pick(['Ooh, new packages!', 'Presents! Wait, dependencies.', 'node_modules grows stronger.']), 3000);
       } else {
-        const detail = detailLine(e, s);
+        const detail = biteLine(e, s) || detailLine(e, s);
         const curious = detail ? null : curiousLine(e.tool, e.detail);
         if ((detail || curious) && !fx) setFx('peer', 1500);
         tell(detail || curious || toolLine(e.tool, e.detail), 4000);
@@ -2121,12 +2622,13 @@ window.buddy.onEvent((e) => {
         tally('tests');
         did('test');
         bump('joy', 0.15);
-        if (fixed) bump('pride', 0.6);
+        if (fixed) { bump('pride', 0.6); did('fixed'); }
         feel.worry *= 0.6;
         sfx('cheer');
         setFx('hop', 500);
         tell(fixed ? pick(['Green again! We fixed it!', 'They pass now! I knew we would.', 'Red to green. Beautiful.'])
           : pick(['Tests pass! ✓', 'All green!', 'They pass! They pass!', 'Green across the board!', 'Not a single red one!', 'Passing! I never doubted us.']), 3000);
+        omen(true);
       } else if (kind === 'commit') {
         tally('commits');
         did('commit');
@@ -2138,6 +2640,7 @@ window.buddy.onEvent((e) => {
         tell(pick(['Committed! Saved forever.', 'Into the history books.', 'Another one for the log.', 'Commit! Nice message, probably.', 'Snapshot taken!', 'Flag planted!']), 3000);
       } else if (kind === 'pr') {
         tally('prs');
+        did('pr');
         bump('joy', 0.3);
         bump('pride', 0.5);
         sfx('level');
@@ -2162,7 +2665,7 @@ window.buddy.onEvent((e) => {
         tell('Phew. Still in one piece.', 2500);
       } else if (waited) {
         setFx('stretch', 2500);
-        tell(pick([`Finally! That took ${span(waited)}.`, `${span(waited)}. I nearly finished my scarf.`, `Done at last! ${span(waited)}.`]), 3500);
+        tell(pick([`Finally! That took ${span(waited)}.`, `${span(waited)}. The scarf is ${scarfLen()} now.`, `Done at last! ${span(waited)}.`]), 3500);
       }
       break;
     }
@@ -2174,6 +2677,7 @@ window.buddy.onEvent((e) => {
       failStreak++;
       day.fails++;
       did('bug');
+      blame(s);
       bump('worry', 0.3);
       bump('joy', -0.15);
       sfx('fail');
@@ -2183,7 +2687,10 @@ window.buddy.onEvent((e) => {
       if (kind === 'test') { lastTestFailed = true; lastCheer = 0; testReds++; }
       roughRun++;
       if (tooSoon) bump('shame', 0.7);
+      if (kind === 'test') omen(false);
+      else if (failStreak === 3) omen(false, true);
       if (failStreak === 3) {
+        did('tea');
         // three in a row: stop wincing and put the kettle on
         feel.worry *= 0.6;
         bump('joy', 0.15);
@@ -2219,13 +2726,9 @@ window.buddy.onEvent((e) => {
     }
 
     case 'SubagentStart':
-      s.helpers = Math.min(9, s.helpers + 1);
-      s.helperAt = Date.now();
-      bump('excite', 0.1);
-      tell(e.agentType ? `Off you go, ${clip(e.agentType, 24)}!` : pick(['Off you go, little one!', 'A helper! Go, go, go!', 'Reinforcements!'])); break;
+      tell(helperOut(e, s)); break;
     case 'SubagentStop':
-      s.helpers = Math.max(0, s.helpers - 1);
-      tell(pick(['Helper is done.', 'Helper\'s back!', 'Thanks, helper!', 'Welcome back, little one.'])); break;
+      tell(helperBack(e, s)); break;
 
     case 'PreCompact':
       setFx('shake', 1700);
@@ -2240,6 +2743,7 @@ window.buddy.onEvent((e) => {
       bump('boredom', -1);
       const relieved = feel.worry > 0.4;
       const rough = roughRun >= 4;
+      const clean = roughRun === 0;
       roughRun = 0;
       const big = s.taskTools >= 15;
       const toolsUsed = s.taskTools;
@@ -2254,7 +2758,19 @@ window.buddy.onEvent((e) => {
       s.taskStart = 0;
       s.taskTools = 0;
       recordDay();
+      // one more for the project it was done in
+      const here = proj(s.project);
+      if (here) {
+        here.t++;
+        here.last = todayKey();
+        if (!day.proj || typeof day.proj !== 'object') day.proj = {};
+        day.proj[s.project] = (Number(day.proj[s.project]) || 0) + 1;
+      }
+      if (clean && toolsUsed >= 3) omen(true, true);
+      if (hour() < 5) did('late');
+      warmEgg(1);
       const prize = checkUnlocks(before);
+      if (prize) did('unlock');
       const run = streak();
       bondUp(0.3);
       if (life.tasks >= 100) earn('centurion');
@@ -2467,7 +2983,7 @@ function applyConfig(c) {
   }
   // "unlocks": { "sprout": 10, "mint": 100, ... } moves the thresholds
   if (c.unlocks && typeof c.unlocks === 'object') {
-    for (const u of [...HATS, ...COLORS]) {
+    for (const u of [...HATS, ...COLORS, ...EXTRAS]) {
       if (u.id !== 'classic' && Number.isFinite(c.unlocks[u.id]) && c.unlocks[u.id] >= 0) u.at = c.unlocks[u.id];
     }
     applyLook();
@@ -2704,6 +3220,8 @@ svg.addEventListener('pointermove', (e) => {
       bump('joy', 0.3);
       bump('love', 0.3);
       did('heart');
+      lastPet = Date.now();
+      warmEgg(0.5);
       tally('pets');
       // petting counts toward friendship a few times a day
       day.petBond = (day.petBond || 0) + 1;
@@ -2778,6 +3296,7 @@ window.buddy.onBounce(() => {
 
 window.buddy.onLanded(({ impact, placed, perch }) => {
   if (dragging) return; // caught again before it settled
+  perched = !!perch;
   if (!placed) sfx('bounce');
   if (placed) {
     setFx('land', 400);
@@ -2884,6 +3403,7 @@ function feed(name, text, size) {
   bump('irritation', -0.2);
   bump('hurt', -0.3); // a snack is an apology it understands
   did('snack');
+  lastFed = Date.now();
   const kind = ((/\.([a-z0-9]{1,8})$/i.exec(name || '') || [])[1] || (name ? 'file' : 'text')).toLowerCase();
   life.stats.kinds = Array.isArray(life.stats.kinds) ? life.stats.kinds : [];
   if (!life.stats.kinds.includes(kind) && life.stats.kinds.length < 200) life.stats.kinds.push(kind);
@@ -2896,6 +3416,7 @@ function feed(name, text, size) {
   sfx('eat');
 
   if (food && food.id === life.fav) {
+    did('fav');
     bump('joy', 0.4);
     bump('love', 0.6);
     bump('hurt', -1);
@@ -3343,8 +3864,10 @@ setInterval(() => {
       : streak() >= 2 ? `Good morning! Day ${streak() + 1} of our streak?`
       : 'Good morning! What are we making today?', 6000);
     // good friends hear what it dreamt
-    if (!wary && bondLevel() >= 3 && ageIndex() > 0) {
-      setTimeout(() => { if (!fx && state === 'idle' && !quiet) say(pick(DREAM_TELL), 6000); }, 7500);
+    const wrote = life.diary.length > 0 && life.diary[life.diary.length - 1].d === dateKey(daysAgo(1));
+    if (!wary && ageIndex() > 0 && (wrote || bondLevel() >= 3)) {
+      const about = wrote && (bondLevel() < 3 || Math.random() < 0.5) ? pick(['I wrote about yesterday in my diary. It\'s in the album. No peeking. …okay, you can peek.', 'Yesterday is in my diary now. You\'re in it.']) : pick(DREAM_TELL);
+      setTimeout(() => { if (!fx && state === 'idle' && !quiet) say(about, 6000); }, 7500);
     }
   } else if (state === 'idle' && life.wary && life.hurtOn !== todayKey() && ageIndex() > 0 && now > hushUntil) {
     // the day after a bad one, and nobody has said sorry
@@ -3353,9 +3876,15 @@ setInterval(() => {
     say(pick(['You\'re not going to do that again, are you?', 'About yesterday… be gentle today?', 'I haven\'t forgotten yesterday. …but okay.']), 5000);
   } else if (state === 'idle' && (birthdayAge() || monthsOld() > 0) && life.partied !== todayKey()) {
     party();
-  } else if (state === 'idle' && !guest && life.friends.length && now > nextVisit && now - lastActivity > 20000) {
-    // a friend drops in unannounced
-    startVisit(life.friends[Math.floor(Math.random() * life.friends.length)]);
+  } else if (state === 'idle' && !life.egg && isOld() && ageIndex() === 3 && !guest && !gift && now > hushUntil && now - lastActivity > 20000) {
+    findEgg();
+  } else if (state === 'idle' && life.egg && life.egg.warm >= EGG_WARM && life.egg.asked !== todayKey() && !asking && !guest && !gift && !invite
+    && now > hushUntil && now - lastActivity > 20000 && now - Math.max(cur.movedAt, lastKey) < 60000) {
+    askHatch();
+  } else if (state === 'idle' && !guest && life.friends.length + life.elders.length && now > nextVisit && now - lastActivity > 20000) {
+    // a friend drops in unannounced, or one of the family
+    const callers = [...life.friends, ...life.elders];
+    startVisit(callers[Math.floor(Math.random() * callers.length)]);
   } else if (state === 'idle' && !gift && !guest && bondLevel() >= 4 && now - lastActivity > 15000 && now - Math.max(cur.movedAt, lastKey) < 60000
     && (!isDate(life.lastGift) || new Date(todayKey()) - new Date(life.lastGift) >= 3 * 864e5) && Math.random() < 0.02) {
     // best friends get a present every few days, when you are around to open it
@@ -3496,6 +4025,7 @@ setInterval(() => {
     sulk = next === 'grumpy' ? (cur.dx < 0 ? 'r' : 'l') : '';
     sulkTurns = frontSince = 0;
     if (next === 'hurt') {
+      did('hurt');
       // it remembers: wary tomorrow unless you make it up, and a card in the album
       life.wary = true;
       if (life.hurtOn !== todayKey()) {
@@ -3523,7 +4053,12 @@ setInterval(() => {
     lateHour = hour();
     say(`It's ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Bed soon? For both of us?`, 5000);
   }
-  if (++feelTicks % 30 === 0) { saveFeel(); applySeason(); }
+  if (++feelTicks % 30 === 0) {
+    saveFeel();
+    applySeason();
+    rollDay();
+    if (unwritten) writeDiary();
+  }
 }, 1000);
 window.addEventListener('beforeunload', saveFeel);
 
@@ -3534,8 +4069,16 @@ window.buddy.onAskMood(() => {
   const room = worst && worst.ctx >= CFG.contextWarnAt[0] ? ` Also: context is ${worst.ctx}% full.` : '';
   const timer = focusUntil ? ` Focus: ${Math.max(1, Math.round((focusUntil - Date.now()) / 60000))} min left.` : '';
   const food = life.favFound ? ` Favourite food: ${FOODS.find((f) => f.id === life.fav).name}.` : '';
+  const belief = life.omens.held.length ? life.omens.held[Math.floor(Math.random() * life.omens.held.length)] : null;
+  // one more thing about itself, a different one each time
+  const more = [
+    life.scarf >= 60 && `My scarf is ${scarfLen()} long.`,
+    belief && `${belief.from ? `${belief.from} taught me that` : 'I happen to know that'} ${omenText(belief)}.`,
+    opinions().fav && `Favourite project: ${clip(opinions().fav, 20)}.`,
+    life.egg && 'I\'m keeping an egg warm.',
+  ].filter(Boolean);
   const born = new Date(`${life.born}T12:00:00`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  say((life.name ? `${life.name} here. ` : '') + pick(MOOD_REPORT[mood] || MOOD_REPORT.content) + (isNight() && mood === 'content' ? ' A bit sleepy.' : '') + room + timer + ` We're: ${BOND_NAMES[bondLevel()].toLowerCase()}.` + food + ` I'm a ${AGE_NAMES[ageIndex()]}, born ${born}.`, 9000, true);
+  say((life.name ? `${life.name} here. ` : '') + pick(MOOD_REPORT[mood] || MOOD_REPORT.content) + (isNight() && mood === 'content' ? ' A bit sleepy.' : '') + room + timer + ` We're: ${BOND_NAMES[bondLevel()].toLowerCase()}.` + food + ` I'm a ${AGE_NAMES[ageIndex()]}${life.gen > 1 ? ` (generation ${life.gen})` : ''}, born ${born}.` + (more.length ? ' ' + more[Math.floor(Math.random() * more.length)] : ''), 10000, true);
 });
 
 // Nod off after a couple of quiet minutes (much sooner when tired or late); any hook event or
@@ -3593,5 +4136,7 @@ visit();
 applySeason();
 showNote();
 recordDay();
+if (unwritten) writeDiary();
+showEgg();
 saveFeel();
 setState('idle');

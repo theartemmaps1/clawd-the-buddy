@@ -19,10 +19,12 @@ el.addEventListener('pointerup', release);
 el.addEventListener('pointercancel', release);
 window.addEventListener('blur', release);
 
-// which earned things are out, how tall the plant has grown, and whether the lamp is lit
+// which earned things are out, how tall the plant has grown, how far the scarf has got, and
+// whether the lamp is lit
 window.bed.onState((s) => {
   const on = Array.isArray(s && s.on) ? s.on : [];
   for (const item of document.querySelectorAll('.item')) item.classList.toggle('on', on.includes(item.dataset.id));
   document.body.dataset.plant = Number(s && s.plant) || 0;
+  document.body.dataset.scarf = Number(s && s.scarf) || 0;
   document.body.classList.toggle('night', !!(s && s.night));
 });

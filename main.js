@@ -59,12 +59,12 @@ const PERSONALITIES = ['cheerful', 'sarcastic', 'shy', 'dramatic'];
 const settingsFile = path.join(app.getPath('userData'), 'buddy-settings.json');
 let config = {}; // config.json: timings, thresholds and phrases the user can retune
 // what the renderer says is unlocked and worn, for the Wardrobe menu
-let wardrobe = { tasks: 0, hat: '', color: 'classic', hats: [], colors: [] };
+let wardrobe = { tasks: 0, hat: '', color: 'classic', hats: [], colors: [], extras: [] };
 let badges = []; // { label, earned }, also from the renderer
 let roomItems = []; // { id, label, need, unlocked, on }
 let tricks = []; // { id, label, known }
 let who = { name: '', code: '', friends: [], words: 0 }; // its name, its code to share, who it knows
-let roomState = { on: [], plant: 0, night: false }; // what is standing in its room right now
+let roomState = { on: [], plant: 0, night: false, scarf: 0 }; // what is standing in its room right now
 let albumWin = null;
 let pomodoro = false;
 let quitting = false;
@@ -801,6 +801,7 @@ ipcMain.on('buddy-room', (_e, r) => {
     on: Array.isArray(r.on) ? r.on.filter((id) => typeof id === 'string' && ROOM_BOXES[id]).slice(0, 10) : [],
     plant: Math.max(0, Math.min(3, Number(r.plant) || 0)),
     night: !!r.night,
+    scarf: Math.max(0, Math.min(4, Math.floor(Number(r.scarf)) || 0)),
   };
   sendRoom();
 });
@@ -878,8 +879,12 @@ ipcMain.on('buddy-hide', (_e, on) => {
 
 // ---- photo album ----
 
-function openAlbum() {
-  if (albumWin && !albumWin.isDestroyed()) return albumWin.focus();
+// `tab`: which page it opens at ('' for the photos, 'diary', 'family')
+function openAlbum(tab = '') {
+  if (albumWin && !albumWin.isDestroyed()) {
+    albumWin.loadFile('album.html', { hash: tab });
+    return albumWin.focus();
+  }
   albumWin = new BrowserWindow({
     width: 420,
     height: 560,
@@ -892,12 +897,23 @@ function openAlbum() {
   albumWin.webContents.on('will-navigate', (e) => e.preventDefault());
   albumWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   albumWin.on('closed', () => { albumWin = null; });
-  albumWin.loadFile('album.html');
+  albumWin.loadFile('album.html', { hash: tab });
 }
 
 ipcMain.on('album-load', (e) => {
   const life = memory['buddy-life'];
   e.returnValue = life && Array.isArray(life.album) ? life.album.slice(-150) : [];
+});
+
+// its diary, and the ones who stood here before it
+ipcMain.on('album-more', (e) => {
+  const life = memory['buddy-life'] || {};
+  e.returnValue = {
+    diary: Array.isArray(life.diary) ? life.diary.slice(-120) : [],
+    elders: Array.isArray(life.elders) ? life.elders.slice(-12) : [],
+    now: { n: String(life.name || ''), c: life.color, h: life.hat, gen: Number(life.gen) || 1, born: life.born },
+    scarf: Number(life.scarf) || 0,
+  };
 });
 
 // ---- focus timer, notes, goodbye ----
@@ -1034,8 +1050,9 @@ ipcMain.on('buddy-wardrobe', (_e, w) => {
     label: String(i.label).slice(0, 30),
     at: Number(i.at) || 0,
     unlocked: !!i.unlocked,
+    on: !!i.on,
   })) : []);
-  wardrobe = { tasks: Number(w.tasks) || 0, hat: String(w.hat || ''), color: String(w.color || 'classic'), hats: items(w.hats), colors: items(w.colors) };
+  wardrobe = { tasks: Number(w.tasks) || 0, hat: String(w.hat || ''), color: String(w.color || 'classic'), hats: items(w.hats), colors: items(w.colors), extras: items(w.extras) };
   badges = Array.isArray(w.badges) ? w.badges.slice(0, 60).map((b) => ({ label: String(b.label).slice(0, 70), earned: !!b.earned })) : [];
   roomItems = Array.isArray(w.room) ? w.room.slice(0, 20).map((r) => ({
     id: String(r.id).slice(0, 20),
@@ -1069,6 +1086,14 @@ function wardrobeMenu() {
     ...wardrobe.hats.map(entry('hat', wardrobe.hat)),
     { type: 'separator' },
     ...wardrobe.colors.map(entry('color', wardrobe.color)),
+    ...(wardrobe.extras.length ? [{ type: 'separator' }] : []),
+    ...wardrobe.extras.map((i) => ({
+      label: i.unlocked ? i.label : `${i.label} (at ${i.at} tasks)`,
+      type: 'checkbox',
+      enabled: i.unlocked,
+      checked: i.unlocked && i.on,
+      click: () => send('buddy-wear', { extra: i.id }),
+    })),
   ];
 }
 
@@ -1127,7 +1152,8 @@ function buildMenu() {
         })),
       ],
     },
-    { label: 'Photo album', click: openAlbum },
+    { label: 'Photo album', click: () => openAlbum() },
+    { label: 'Diary', click: () => openAlbum('diary') },
     {
       label: `Achievements (${badges.filter((b) => b.earned).length}/${badges.length})`,
       submenu: badges.length ? badges.map((b) => ({ label: (b.earned ? '★ ' : '☆ ') + b.label, enabled: b.earned })) : [{ label: 'None yet', enabled: false }],
@@ -1231,6 +1257,7 @@ function slim(p) {
     notificationType: p.notification_type,
     message: p.message,
     agentType: p.agent_type,
+    agentId: typeof p.agent_id === 'string' ? p.agent_id.slice(0, 80) : '',
     mode: typeof p.permission_mode === 'string' ? p.permission_mode.slice(0, 30) : '',
     source: typeof p.source === 'string' ? p.source.slice(0, 30) : '',
     cwd: p.cwd,

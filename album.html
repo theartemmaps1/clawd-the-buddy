@@ -7,6 +7,23 @@
 <style>
   html, body { margin: 0; background: #f6efe6; color: #3a2a20; font-family: system-ui, sans-serif; user-select: none; }
   h1 { margin: 18px 20px 2px; font-size: 18px; }
+  #diary h1, #family h1 { margin: 18px 0 12px; }
+  #tabs { display: flex; gap: 6px; margin: 10px 20px 0; }
+  #tabs button { padding: 4px 12px; font: 12px system-ui, sans-serif; color: #6b574a; background: #efe3d6; border: 0; border-radius: 12px; cursor: pointer; }
+  #tabs button.on { color: #fff; background: #d97757; }
+  .page { display: none; }
+  .page.on { display: block; }
+  #diary, #family { padding: 4px 20px 24px; }
+  .entry { margin-bottom: 12px; padding: 10px 12px; background: #fffdf5; border-left: 4px solid #e86a9a; box-shadow: 0 1px 5px rgba(60,30,10,.12); }
+  .entry time { display: block; margin-bottom: 4px; font-size: 10px; color: #a8958a; }
+  .entry p { margin: 0; font: 13px/1.45 Georgia, serif; color: #4a382c; }
+  .kin { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; padding: 8px 10px; background: #fff; box-shadow: 0 1px 5px rgba(60,30,10,.12); }
+  .kin svg { width: 64px; height: 52px; flex: none; shape-rendering: crispEdges; }
+  .kin b { display: block; font-size: 13px; }
+  .kin span { font-size: 11px; color: #6b574a; }
+  .kin.now { background: #ffe8dc; }
+  .down { margin: 0 0 4px 40px; color: #c9b5a6; font-size: 14px; }
+  .blank { padding: 50px 10px; text-align: center; font-size: 13px; color: #8a7466; line-height: 1.5; }
   #count { margin: 0 20px 12px; font-size: 12px; color: #8a7466; }
   #cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 4px 20px 24px; }
   .card { background: #fff; padding: 8px 8px 10px; box-shadow: 0 2px 8px rgba(60,30,10,.18); rotate: -1.2deg; }
@@ -21,7 +38,9 @@
   .k-trick .photo { background: #e3f6e6; }
   .k-unlock .photo, .k-grow .photo { background: #efe4ff; }
   .k-gift .photo, .k-name .photo { background: #ffdde6; }
-  .k-bday .photo, .k-visit .photo { background: #ffe9c2; }
+  .k-bday .photo, .k-visit .photo, .k-egg .photo, .k-hatch .photo { background: #ffe9c2; }
+  .k-scarf .photo { background: #ffdde6; }
+  .k-omen .photo { background: #efe4ff; }
   .card b { display: block; margin-top: 7px; font-size: 13px; }
   .card p { margin: 2px 0 4px; font-size: 11px; line-height: 1.3; color: #6b574a; }
   .card time { font-size: 10px; color: #a8958a; }
@@ -29,9 +48,14 @@
 </style>
 </head>
 <body>
-  <h1>Photo album</h1>
-  <p id="count"></p>
-  <div id="cards"></div>
+  <div id="tabs"><button data-tab="photos">Photos</button><button data-tab="diary">Diary</button><button data-tab="family">Family</button></div>
+  <div class="page" id="photos">
+    <h1>Photo album</h1>
+    <p id="count"></p>
+    <div id="cards"></div>
+  </div>
+  <div class="page" id="diary"><h1>Diary</h1></div>
+  <div class="page" id="family"><h1>Family</h1></div>
 <script src="album.js"></script>
 </body>
 </html>

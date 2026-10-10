@@ -14,6 +14,11 @@
   .p1, .p2, .p3 { display: none; }
   body[data-plant="1"] .p1, body[data-plant="2"] .p1, body[data-plant="2"] .p2,
   body[data-plant="3"] .p1, body[data-plant="3"] .p2, body[data-plant="3"] .p3 { display: block; }
+  /* the scarf it knits spills further across the room the longer it gets */
+  .s1, .s2, .s3, .s4 { display: none; }
+  body[data-scarf="1"] .s1, body[data-scarf="2"] .s1, body[data-scarf="3"] .s1, body[data-scarf="4"] .s1,
+  body[data-scarf="2"] .s2, body[data-scarf="3"] .s2, body[data-scarf="4"] .s2,
+  body[data-scarf="3"] .s3, body[data-scarf="4"] .s3, body[data-scarf="4"] .s4 { display: block; }
   .glow { opacity: 0; }
   .night .glow { opacity: .45; }
   .night .shade { fill: #ffe27a; }
@@ -54,6 +59,12 @@
     <rect x="17" y="21" width="8" height="4" fill="#ffffff" />
     <rect x="26" y="23" width="18" height="5" fill="#4a60bd" />
     <rect x="26" y="23" width="18" height="1" fill="#7f93e6" />
+
+    <!-- the scarf: over the blanket, down the side of the bed, then away across the floor -->
+    <g class="s1"><rect x="38" y="23" width="4" height="5" fill="#e86a9a" /><rect x="38" y="24" width="4" height="1" fill="#f4a6c2" /><rect x="38" y="26" width="4" height="1" fill="#f4a6c2" /></g>
+    <g class="s2"><rect x="38" y="28" width="4" height="4" fill="#e86a9a" /><rect x="38" y="29" width="4" height="1" fill="#f4a6c2" /></g>
+    <g class="s3"><rect x="26" y="31" width="12" height="1" fill="#e86a9a" /><rect x="28" y="31" width="2" height="1" fill="#f4a6c2" /><rect x="32" y="31" width="2" height="1" fill="#f4a6c2" /><rect x="36" y="31" width="2" height="1" fill="#f4a6c2" /></g>
+    <g class="s4"><rect x="19" y="31" width="7" height="1" fill="#e86a9a" /><rect x="22" y="31" width="2" height="1" fill="#f4a6c2" /><rect x="16" y="29" width="3" height="3" fill="#e86a9a" /><rect x="17" y="30" width="1" height="1" fill="#f4a6c2" /></g>
 
     <!-- the plant grows with the streak -->
     <g class="item" data-id="plant">

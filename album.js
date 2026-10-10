@@ -1,7 +1,7 @@
 // The photo album: one card per milestone, newest first. Each card remembers what the buddy
-// was wearing that day.
+// was wearing that day. Two more pages hold its diary and the family tree.
 const COLORS = { classic: '#d97757', mint: '#5fbf9a', sky: '#5aa7e0', grape: '#9b6fd6', gold: '#e0b030' };
-const STAMPS = { first: '🌱', unlock: '🎁', streak: '🔥', bond: '♥', badge: '★', trick: '✦', food: '🍪', grow: '🌿', name: '✎', visit: '👋', bday: '🎂', gift: '💝', secret: '🤫', hurt: '🩹' };
+const STAMPS = { first: '🌱', unlock: '🎁', streak: '🔥', bond: '♥', badge: '★', trick: '✦', food: '🍪', grow: '🌿', name: '✎', visit: '👋', bday: '🎂', gift: '💝', secret: '🤫', hurt: '🩹', scarf: '🧶', omen: '🔮', egg: '🥚', hatch: '🐣' };
 // what a gift looks like, drawn to the left of the portrait: [x, y, width, height, colour]
 const PICS = {
   us: [[-8, -3, 4, 4, '#f2c9a0'], [-8, 1, 4, 6, '#4a60bd'], [-8, 7, 1, 4, '#33363d'], [-5, 7, 1, 4, '#33363d'], [-3, -4, 1, 1, '#ff5a7a'], [-1, -4, 1, 1, '#ff5a7a'], [-3, -3, 3, 1, '#ff5a7a'], [-2, -2, 1, 1, '#ff5a7a']],
@@ -74,3 +74,55 @@ if (!cards.length) {
   empty.textContent = 'No photos yet. Finish a task, make friends, teach it a trick, find its favourite food: every first gets a picture.';
   box.replaceWith(empty);
 }
+
+// ---- the other pages ----
+
+const more = window.album.more() || {};
+const longDate = (text) => {
+  const d = new Date(String(text) + 'T12:00:00');
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+};
+const add = (parent, tag, text, cls) => {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text) el.textContent = text; // textContent only: names and pages are stored text
+  parent.appendChild(el);
+  return el;
+};
+
+// the diary, newest page first
+const diary = document.getElementById('diary');
+const pages = Array.isArray(more.diary) ? more.diary.filter((p) => p && typeof p === 'object') : [];
+for (const page of [...pages].reverse()) {
+  const el = add(diary, 'div', '', 'entry');
+  add(el, 'time', new Date(String(page.d) + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).replace('Invalid Date', ''));
+  add(el, 'p', String(page.t || ''));
+}
+if (!pages.length) add(diary, 'div', 'Nothing written yet. It writes a few lines about each day once the day is over.', 'blank');
+
+// the family: whoever stood here before, oldest first, down to the one here now
+const family = document.getElementById('family');
+const elders = Array.isArray(more.elders) ? more.elders.filter((f) => f && typeof f === 'object') : [];
+const now = more.now && typeof more.now === 'object' ? more.now : {};
+for (const f of [...elders, { ...now, here: true }]) {
+  if (f !== elders[0] && !(f.here && !elders.length)) add(family, 'div', '↓', 'down');
+  const el = add(family, 'div', '', f.here ? 'kin now' : 'kin');
+  el.appendChild(portrait({ color: f.c, hat: f.h }));
+  const words = add(el, 'div');
+  add(words, 'b', `${String(f.n || '') || (f.here ? 'No name yet' : 'Buddy')} · generation ${Number(f.gen) || 1}`);
+  add(words, 'span', f.here ? `Born ${longDate(f.born)}. Here now.` : `${longDate(f.born)} to ${longDate(f.left)}. ${Number(f.tasks) || 0} tasks together.`);
+}
+const metres = (Number(more.scarf) || 0) / 600;
+if (metres >= 0.01) add(family, 'div', `The family scarf is ${metres < 1 ? `${Math.round(metres * 100)} cm` : `${metres.toFixed(1)} m`} long.`, 'blank');
+
+// tabs; the menu can ask for a page with #diary or #family
+function show(tab) {
+  const id = ['diary', 'family'].includes(tab) ? tab : 'photos';
+  for (const page of document.querySelectorAll('.page')) page.classList.toggle('on', page.id === id);
+  for (const b of document.querySelectorAll('#tabs button')) b.classList.toggle('on', b.dataset.tab === id);
+}
+document.getElementById('tabs').addEventListener('click', (e) => {
+  if (e.target.dataset.tab) show(e.target.dataset.tab);
+});
+window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+show(location.hash.slice(1));
