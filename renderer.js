@@ -2857,13 +2857,20 @@ function hiccups(n) {
   }, 1400 + Math.random() * 1200);
 }
 
-function feed(name, text) {
+// How filling a snack is, by its size in bytes: a crumb of text takes the edge off, a few
+// hundred KB is an ordinary meal, a gigabyte is a feast. Unknown sizes (folders) are a meal.
+function portion(bytes) {
+  if (!(bytes > 0)) return 0.45;
+  return Math.max(0.15, Math.min(0.9, 0.2 + 0.1 * (Math.log10(bytes) - 2.5)));
+}
+
+function feed(name, text, size) {
   touch();
   rollDay();
   day.snacks++;
   store('buddy-day', day);
   const stuffed = feel.hunger < 0.08;
-  bump('hunger', -0.45);
+  bump('hunger', -portion(name ? size : text.length));
   if (stuffed) {
     bump('joy', -0.05);
     bump('shame', 0.25);
@@ -2962,13 +2969,13 @@ window.addEventListener('dragleave', (e) => {
 window.addEventListener('drop', (e) => {
   e.preventDefault();
   foodDragAt = 0;
-  // only the name and the amount of text matter; nothing is read or kept
+  // only the name, the size and the amount of text matter; nothing is read or kept
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   let text = '';
   if (!file) {
     try { text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list') || ''; } catch {}
   }
-  feed(file ? file.name : '', text);
+  feed(file ? file.name : '', text, file ? file.size : 0);
 });
 
 // ---- the cursor ----

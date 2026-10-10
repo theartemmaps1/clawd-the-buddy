@@ -83,7 +83,8 @@ curl -X POST http://127.0.0.1:8787/event -H 'content-type: application/json' \
   top: scared (dangerous commands, hard throws), embarrassed (sneezes, cheering too soon), excited,
   proud, loving, jealous (you typing away for ages without a glance at it) and bored (waiting).
   Each has its own face. Sleepy at night; it cries when things go really badly.
-- **Snacks:** drag a file or selected text onto it. Only the file name is looked at. It loves
+- **Snacks:** drag a file or selected text onto it. Only the file name and size are looked at; bigger
+  files are more filling. It loves
   plain words, sniffs programs suspiciously, finds office documents dry, and has one favourite
   food of its own that you have to discover by feeding it.
 - **Memory:** "How was today?" reports the day's tasks, failures and longest job.
