@@ -14,13 +14,25 @@ files:
   - "!*.test.js"
   - "!dev/**"
 
-# config.json is meant to be edited by users, so it ships outside the asar.
+# Shipped outside the asar: config.json is meant to be edited, and the uninstaller runs
+# disconnect-hooks.js with the app's own runtime (it needs connect-hooks.js beside it).
 extraResources:
   - from: config.json
     to: config.json
+  - from: disconnect-hooks.js
+    to: disconnect-hooks.js
+  - from: connect-hooks.js
+    to: connect-hooks.js
 
 asar: true
 compression: normal
+
+# In-app updates read the latest release from here (the repo must be public).
+publish:
+  provider: github
+  owner: theartemmaps1
+  repo: clawd-the-buddy
+  releaseType: release
 
 win:
   icon: build/icon.ico
@@ -30,11 +42,26 @@ win:
   artifactName: Clawd-Setup-${version}.exe
 
 nsis:
-  oneClick: true          # one click, no wizard
-  perMachine: false       # per-user install: no admin prompt
-  allowToChangeInstallationDirectory: false
-  deleteAppDataOnUninstall: false   # keep Clawd's memory and friendship if reinstalled
+  # A real wizard, not one click.
+  oneClick: false
+  perMachine: false          # per-user: no admin prompt, and updates can run silently
+  allowElevation: false      # keeps the "install for all users?" page out of the wizard
+  allowToChangeInstallationDirectory: true
+  license: LICENSE
+  runAfterFinish: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  menuCategory: false
   shortcutName: Clawd
   uninstallDisplayName: Clawd
+  # his artwork
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeader: build/installerHeader.bmp
+  installerSidebar: build/installerSidebar.bmp
+  uninstallerSidebar: build/uninstallerSidebar.bmp
+  # extra pages: repair / update / uninstall, first-run choices, uninstall clean-up options
+  include: build/installer.nsh
+  # his memories are handled by the uninstaller's own page, not by electron-builder
+  deleteAppDataOnUninstall: false
+  differentialPackage: true

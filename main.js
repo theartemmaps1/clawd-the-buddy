@@ -5,6 +5,9 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const hookGuard = require('./hook-guard');
+const updater = require('./updater');
+const installOptions = require('./install-options');
+const { connect: connectHooks, disconnect: disconnectHooks } = require('./connect-hooks');
 
 // Clawd chirps without ever being clicked first
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -62,7 +65,7 @@ let ticks = 0;
 
 const settings = {
   wander: true, gravity: true, sound: true, perch: true, bed: false, bedX: 0, bedY: 0, personality: 'cheerful',
-  typing: true, reminders: true, notice: true, autoQuiet: true, quiet: false, music: false, pages: false, meddle: false, pet: false, loud: true,
+  typing: true, reminders: true, notice: true, autoQuiet: true, quiet: false, music: false, pages: false, meddle: false, pet: false, loud: true, autoUpdate: true,
 };
 const PERSONALITIES = ['cheerful', 'sarcastic', 'shy', 'dramatic', 'wise', 'nerdy', 'sleepy', 'anxious'];
 const settingsFile = path.join(app.getPath('userData'), 'buddy-settings.json');
@@ -1925,6 +1928,31 @@ function buildMenu() {
     },
     { label: visible ? 'Hide Clawd' : 'Show Clawd', click: () => (visible ? win.hide() : win.showInactive()) },
     { type: 'separator' },
+    {
+      label: 'Connect to Claude Code',
+      click: () => {
+        const r = connectHooks({ port: PORT });
+        const message = !r.ok ? r.error
+          : r.added ? `Connected. Added ${r.added} hook${r.added === 1 ? '' : 's'} to ${r.file}.\nRestart Claude Code to pick them up.`
+          : 'Already connected. Nothing to change.';
+        require('electron').dialog.showMessageBox({ type: r.ok ? 'info' : 'error', title: 'Clawd', message, detail: r.backup ? `Your old settings were saved to ${r.backup}` : undefined });
+      },
+    },
+    {
+      label: 'Disconnect from Claude Code',
+      click: () => {
+        const r = disconnectHooks({ port: PORT });
+        const message = !r.ok ? r.error
+          : r.removed ? `Disconnected. Removed ${r.removed} hook${r.removed === 1 ? '' : 's'} from ${r.file}.\nRestart Claude Code to finish.`
+          : 'He was not connected. Nothing to change.';
+        require('electron').dialog.showMessageBox({ type: r.ok ? 'info' : 'error', title: 'Clawd', message, detail: r.backup ? `Your old settings were saved to ${r.backup}` : undefined });
+      },
+    },
+    { type: 'separator' },
+    { label: `Clawd v${app.getVersion()}`, enabled: false },
+    { label: 'Check for updates\u2026', click: () => updater.check(true) },
+    toggle('Check for updates automatically', 'autoUpdate'),
+    { type: 'separator' },
     { label: 'Reload config.json', click: () => { send('buddy-config-loaded', loadConfig()); sendSettings(); } },
     ...(dev && dev.menu ? [{ label: 'Dev', submenu: dev.menu() }] : []),
     { label: 'Quit Clawd', click: quitNicely },
@@ -2096,6 +2124,13 @@ if (!app.requestSingleInstanceLock()) {
     trackCursor();
     startWatcher();
     startServer();
+    installOptions.apply({
+      file: path.join(app.getPath('userData'), 'install-options.json'),
+      port: PORT,
+      connectHooks,
+      setStartup: (on) => app.setLoginItemSettings({ openAtLogin: on, ...loginItem() }),
+    });
+    updater.init({ enabled: () => settings.autoUpdate });
     // a few things about the computer itself that he likes to remark on
     watchDownloads();
     powerMonitor.on('on-battery', () => send('buddy-world', 'battery'));
