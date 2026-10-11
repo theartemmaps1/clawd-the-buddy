@@ -157,8 +157,9 @@ quickly with the cursor and he gets dizzy; shake the mouse and he helps you find
 He has moods: joyful, grumpy, worried, tired, hungry, lonely and glum, with quicker feelings
 on top. He gets scared by dangerous commands and hard throws, embarrassed when he sneezes or
 cheers too soon, jealous when you type for ages without a glance at him, bored when he is kept
-waiting, and excited, proud and loving when things go well. Each has its own face. He is
-sleepy at night, and he cries when things go really badly.
+waiting, and excited, proud and loving when things go well. Each has its own face. While he
+is red with embarrassment he cannot meet your eye: he looks down and away from the pointer,
+whichever side you come from. He is sleepy at night, and he cries when things go really badly.
 
 When he is hungry he says so, and every minute or so he rubs his tummy until he is fed.
 

@@ -4729,10 +4729,12 @@ window.buddy.onCursor(({ x, y, sx, sy }) => {
   const dx = (x - (r.left + r.width / 2)) * k;
   const dy = (y - (r.top + r.height * 0.45)) * k;
   const dist = Math.hypot(dx, dy) || 1;
-  const reach = bashful ? 1 : Math.min(1, dist / 250);
-  const shy = mood === 'grumpy' || bashful ? -1 : 1; // sulking: looks pointedly away
+  // blushing: eyes down and to whichever side you are not on
+  const averted = bashful || document.body.classList.contains('mood-embarrassed');
+  const reach = averted ? 1 : Math.min(1, dist / 250);
+  const shy = mood === 'grumpy' || averted ? -1 : 1; // sulking: looks pointedly away
   document.body.style.setProperty('--lx', `${((dx / dist) * 6 * reach * shy).toFixed(1)}px`);
-  document.body.style.setProperty('--ly', `${(bashful ? 4 : (dy / dist) * 5 * reach * shy).toFixed(1)}px`);
+  document.body.style.setProperty('--ly', `${(averted ? 4 : (dy / dist) * 5 * reach * shy).toFixed(1)}px`);
 
   // the cursor charging straight at him makes him flinch
   if (now - cur.wasAt > 90) {
