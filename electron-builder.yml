@@ -1,0 +1,40 @@
+appId: com.theartemmaps1.clawd
+productName: Clawd
+copyright: Copyright (c) 2026 theartemmaps1
+
+directories:
+  output: dist
+  buildResources: build
+
+# Whitelist: only the app's own source goes into the asar.
+# dev/ (local dev tools), screenshots/, docs and tests stay out.
+files:
+  - "*.js"
+  - "*.html"
+  - "!*.test.js"
+  - "!dev/**"
+
+# config.json is meant to be edited by users, so it ships outside the asar.
+extraResources:
+  - from: config.json
+    to: config.json
+
+asar: true
+compression: normal
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: Clawd-Setup-${version}.exe
+
+nsis:
+  oneClick: true          # one click, no wizard
+  perMachine: false       # per-user install: no admin prompt
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false   # keep Clawd's memory and friendship if reinstalled
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Clawd
+  uninstallDisplayName: Clawd

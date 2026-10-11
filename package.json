@@ -2,14 +2,23 @@
   "name": "claude-buddy",
   "version": "0.1.0",
   "description": "Clawd: a tiny desktop companion who reacts to Claude Code hook events",
+  "author": "theartemmaps1",
+  "homepage": "https://github.com/theartemmaps1/clawd-the-buddy",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theartemmaps1/clawd-the-buddy.git"
+  },
   "main": "main.js",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "test": "node --test"
+    "test": "node --test",
+    "dist": "electron-builder --win --x64 --publish never",
+    "dist:dir": "electron-builder --win --x64 --dir"
   },
   "devDependencies": {
-    "electron": "^44.7.0"
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
   },
   "allowScripts": {
     "electron@33.4.11": true

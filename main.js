@@ -160,9 +160,16 @@ ipcMain.on('buddy-memory-save', (_e, key, value) => {
   if (!memoryTimer) memoryTimer = setTimeout(flushMemory, 800);
 });
 
+// A copy in the app's data folder wins (it survives updates); otherwise the bundled one.
+function configPath() {
+  const mine = path.join(app.getPath('userData'), 'config.json');
+  if (fs.existsSync(mine)) return mine;
+  return path.join(app.isPackaged ? process.resourcesPath : __dirname, 'config.json');
+}
+
 function loadConfig() {
   try {
-    const parsed = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(configPath(), 'utf8'));
     config = parsed && typeof parsed === 'object' ? parsed : {};
     return true;
   } catch (e) {
