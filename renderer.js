@@ -73,6 +73,8 @@ let autoQuiet = true;
 let meddleOn = false; // "Let him mess with my desktop"
 let presence = { full: false, mic: false, app: '', game: '', seq: 0 }; // what the main process noticed about the desktop
 let typeAlong = true;
+let loudOn = true; // "Jump at loud sounds"
+let lastSfx = 0; // when he last made a noise of his own
 let remindersOn = true;
 let noticeOn = true;
 let musicOn = false;
@@ -288,6 +290,7 @@ const SOUNDS = {
 
 function sfx(name) {
   if (!soundOn || quiet || !(CFG.volume > 0) || fx === 'sleep') return;
+  lastSfx = Date.now();
   try {
     audio = audio || new AudioContext();
     if (audio.state === 'suspended') audio.resume();
@@ -3163,6 +3166,66 @@ window.buddy.onKey(() => {
   }
 });
 
+// ---- loud noises: the speakers suddenly got much louder than they were ----
+
+// The main process says only that it happened, and how loud (0..100). How he takes it
+// depends on who he is and how he is feeling; the fifth bang in a couple of minutes is
+// less of a shock and more of an annoyance.
+let lastBang = 0;
+let bangs = [];
+
+function bang(level) {
+  const now = Date.now();
+  // not his own chirps, and not while he is tucked away in quiet mode
+  if (!loudOn || quiet || now - lastSfx < 900 || now - lastBang < 4000 || dragging || hiding) return;
+  lastBang = now;
+  bangs = bangs.filter((t) => now - t < 2 * 60000);
+  bangs.push(now);
+  const big = level >= 45;
+  const age = ageIndex();
+  if (palOn) palHop();
+  if (fx === 'sleep') {
+    // woken with a start
+    lastActivity = now;
+    bump('fear', 0.3);
+    bump('energy', -0.05);
+    setFx('surprise', 1400);
+    say(age === 0 ? pick(['Waah!', 'Eep! Loud!']) : pick(['Wha— who— what?!', 'I\'m awake! I\'m awake!', '*jolts awake* What was THAT?', 'Mmf— huh?!']), 2800, true);
+    return;
+  }
+  if (walking || ['fly', 'fall', 'held'].includes(fx)) { bump('fear', 0.15); return; } // in the air or on the move: he only feels it
+  lastActivity = now;
+  hushUntil = now + 3000;
+  if (bangs.length >= 5) {
+    // it keeps happening: he has stopped jumping and started minding
+    bump('irritation', 0.25);
+    setFx('eyeroll', 1500);
+    say(pick(['Is it going to keep doing that?', 'Again? Really?', 'Could we turn it down a bit?', 'My shell is ringing.']), 3000);
+    return;
+  }
+  if (trait('wise') && !big) {
+    setFx('look', 1500);
+    say(pick(['Hm. Loud.', 'A noise. It will pass.']), 2200);
+    return;
+  }
+  bump('fear', big ? 0.5 : 0.3);
+  if (mood === 'hurt' || mood === 'scared') bump('fear', 0.2);
+  if (tune) {
+    // there is music on: it was probably the music
+    setFx('surprise', 1000);
+    say(pick(['Whoa! That bit\'s loud!', 'The drop! Warn me!', 'Eep! …oh. It\'s the song.']), 2500);
+    return;
+  }
+  setFx(big ? 'jump' : 'surprise', big ? 900 : 1200);
+  sfx('poke');
+  say(age === 0 ? pick(['Waah!', 'Loud! LOUD!', 'Eep!'])
+    : age === 2 ? pick(['WHAT. I wasn\'t scared.', 'Jeez! Warn me!', 'I did NOT jump. You jumped.'])
+      : trait('anxious') ? pick(['AAH! What was that? What WAS that?!', 'Are we under attack?!', 'My heart! Do I have a heart?'])
+        : trait('sarcastic') ? pick(['Lovely. My ears needed that.', 'Oh good, a jump scare.'])
+          : pick(['EEP!', 'Aah! What was that?!', 'Whoa! Loud!', '*jumps* Who did that?', 'My ears! …do I have ears?', 'Yikes! Was that us?', 'I nearly lost a pixel!']), 2800);
+}
+window.buddy.onLoud(bang);
+
 // ---- gentle reminders: water, posture, eyes ----
 
 const REMINDERS = [
@@ -4915,6 +4978,7 @@ window.buddy.onSettings((s) => {
   soundOn = !!s.sound;
   bedOn = !!s.bed;
   typeAlong = s.typing !== false;
+  loudOn = s.loud !== false;
   remindersOn = s.reminders !== false;
   noticeOn = s.notice !== false;
   musicOn = !!s.music;

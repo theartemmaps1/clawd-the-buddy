@@ -208,6 +208,12 @@ something from the day: a green tick, a bug, a file, a commit, a snack, the ball
   when a screen is plugged in, when it is 2am. He also bobs along while you type and cheers a
   fast burst, winces at a furious one, asks "stuck?" when a burst is followed by a long
   silence, notices stop-start typing and keeps quiet through a long steady run. He is told only *that* a key went down, never which.
+- **Loud noises (Windows only).** When what the computer is playing suddenly gets much louder
+  than it was, he jumps: a yelp, or a leap for a really loud one. Asleep, he is jolted awake.
+  It depends on who he is: the wise one barely looks up, the anxious one is sure it is an
+  attack, a teenager insists he did not jump. With music on he blames the song. The fifth
+  bang in a couple of minutes annoys him instead. Pip jumps too. "Jump at loud sounds" in
+  the menu turns it off.
 - **Music (Windows only, off by default).** Turn on "Listen to my music" and he hears what is
   playing in Spotify, a browser tab or any other player: notes drift up while it is on, he
   dances when a new track starts and sometimes names it, and after enough songs by one artist
@@ -224,7 +230,7 @@ something from the day: a green tick, a bug, a file, a commit, a snack, the ball
   Teams), and on a shop he asks for something small, then takes the next snack to be it.
 - **Meddling (off by default).** Turn on "Let him mess with my desktop" and his moods reach
   past his own window. Grumpy, he shoves the window he is standing on (or the one in front)
-  sideways, stomps until it rattles, or tramps muddy footprints across the screen. Jealous, he
+  sideways, stomps until it rattles, or walks off across the screen leaving muddy footprints behind him. Jealous, he
   grabs the pointer and drags it over to himself, or shoves the window you are busy with.
   Mischievous, he does any of it for fun and denies it. He goes over to whatever he is after
   first: a run-up and a jump onto the window (with "Sit on windows" on; otherwise he walks or
@@ -363,6 +369,10 @@ wandering, gravity, sitting on windows, starting with Windows, and hiding him.
   "a microphone is in use". Keystrokes and file contents are never read, and window titles
   are never reported.
   "Bob along when I type" and "Notice what I'm doing" in the menu turn the reactions off.
+- "Jump at loud sounds" reads one number from Windows twenty times a second: the level meter
+  of what the speakers are playing, the same one the volume mixer draws, together with the
+  volume setting. No sound is recorded, the microphone is not used, and nothing is saved; he
+  is told only that it got loud. Switched off, the helper does not look.
 - "Listen to my music" is off until you turn it on. While it is on, the helper asks Windows
   what is playing (the title, artist and player its own media flyout shows) every two seconds.
   For a browser tab that is the title of the video or song in it, not the page address. He

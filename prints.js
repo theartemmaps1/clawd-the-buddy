@@ -1,6 +1,7 @@
 // Muddy footprints, left foot then right, from one point to another. The main process puts
-// the two points in the address (#x1,y1,x2,y2) and closes the window when they have faded.
-const [x1, y1, x2, y2] = location.hash.slice(1).split(',').map(Number);
+// the two points and his walking pace in the address (#x1,y1,x2,y2,pxPerSecond), so each
+// print turns up just after he has stepped there, and closes the window when they have faded.
+const [x1, y1, x2, y2, pace] = location.hash.slice(1).split(',').map(Number);
 const NS = 'http://www.w3.org/2000/svg';
 const len = Math.hypot(x2 - x1, y2 - y1);
 
@@ -28,7 +29,7 @@ if (Number.isFinite(len) && len > 0) {
     svg.style.left = Math.round(x1 + ux * i * 34 - uy * (side * 11 + wobble)) + 'px';
     svg.style.top = Math.round(y1 + uy * i * 34 + ux * (side * 11 + wobble)) + 'px';
     svg.style.transform = `rotate(${Math.round(turn)}deg)`;
-    svg.style.animationDelay = i * 110 + 'ms'; // about the pace he walks at
+    svg.style.animationDelay = Math.round((i * 34 * 1000) / (pace > 0 ? pace : 300)) + 'ms';
     document.body.appendChild(svg);
   }
 }

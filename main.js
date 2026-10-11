@@ -22,6 +22,7 @@ const BALL = 56;
 
 const WALK_STEP = 4; // px per tick
 const CHASE_STEP = 7;
+const PRINT_PACE = 200; // px a second while he is leaving footprints, so they keep step with him
 const GRAVITY = 1.2; // px per tick, per tick
 const MAX_THROW = 70; // px per tick
 
@@ -59,7 +60,7 @@ let ticks = 0;
 
 const settings = {
   wander: true, gravity: true, sound: true, perch: true, bed: false, bedX: 0, bedY: 0, personality: 'cheerful',
-  typing: true, reminders: true, notice: true, autoQuiet: true, quiet: false, music: false, pages: false, meddle: false, pet: false,
+  typing: true, reminders: true, notice: true, autoQuiet: true, quiet: false, music: false, pages: false, meddle: false, pet: false, loud: true,
 };
 const PERSONALITIES = ['cheerful', 'sarcastic', 'shy', 'dramatic', 'wise', 'nerdy', 'sleepy', 'anxious'];
 const settingsFile = path.join(app.getPath('userData'), 'buddy-settings.json');
@@ -240,7 +241,14 @@ function createWindow() {
 // comments. With "Listen to my music" on, MUSIC_PS runs beside it (see there).
 const WATCH_CS = [
   'using System; using System.Text; using System.Threading; using System.Runtime.InteropServices; using Microsoft.Win32; using UIA = System.Windows.Automation;',
-  'namespace Buddy { public static class Watch {',
+  // the three corners of Windows audio needed to ask how loud the speakers are right now
+  'namespace Buddy {',
+  '[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDeviceEnumerator { }',
+  '[ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] interface IMMDeviceEnumerator { int EnumAudioEndpoints(int flow, int mask, out IntPtr devs); int GetDefaultAudioEndpoint(int flow, int role, out IMMDevice dev); }',
+  '[ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] interface IMMDevice { int Activate(ref Guid iid, int ctx, IntPtr p, [MarshalAs(UnmanagedType.IUnknown)] out object o); }',
+  '[ComImport, Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] interface IAudioMeterInformation { int GetPeakValue(out float peak); }',
+  '[ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] interface IAudioEndpointVolume { int A(IntPtr p); int B(IntPtr p); int C(out int n); int D(float v, IntPtr g); int E(float v, IntPtr g); int F(out float v); int GetMasterVolumeLevelScalar(out float v); int G(int c, float v, IntPtr g); int H(int c, float v, IntPtr g); int I(int c, out float v); int J(int c, out float v); int K(int m, IntPtr g); int GetMute(out int m); }',
+  'public static class Watch {',
   'delegate bool EnumProc(IntPtr h, IntPtr l);',
   '[StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }',
   '[StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }',
@@ -386,10 +394,34 @@ const WATCH_CS = [
   '    Say("D " + a[1] + (ok ? " 1" : " 0"));',
   '  }',
   '}',
-  'public static void Run(int owner, int ms, int sites, int hands) {',
+  // "Jump at loud sounds": twenty times a second, ask Windows for the level meter of whatever
+  // the speakers are playing (one number, the same one the volume mixer draws) and the volume
+  // it is set to. Nothing is recorded and no microphone is involved. A level that is both
+  // fairly loud and well above how things have sounded for the last couple of seconds prints
+  // "L". The volume counts by its square root, so turning it down does not make him deaf.
+  'static void Ears() {',
+  '  IAudioMeterInformation meter = null; IAudioEndpointVolume vol = null; int n = 0; float usual = 0; int rest = 0; float knob = 1;',
+  '  while (true) {',
+  '    Thread.Sleep(50);',
+  '    try {',
+  '      if (meter == null || n % 200 == 0) {',
+  '        IMMDevice dev; ((IMMDeviceEnumerator)(new MMDeviceEnumerator())).GetDefaultAudioEndpoint(0, 1, out dev);',
+  '        Guid mi = typeof(IAudioMeterInformation).GUID; object mo; dev.Activate(ref mi, 23, IntPtr.Zero, out mo); meter = (IAudioMeterInformation)mo;',
+  '        Guid vi = typeof(IAudioEndpointVolume).GUID; object vo; dev.Activate(ref vi, 23, IntPtr.Zero, out vo); vol = (IAudioEndpointVolume)vo;',
+  '      }',
+  '      if (n++ % 10 == 0) { float v; int muted; vol.GetMasterVolumeLevelScalar(out v); vol.GetMute(out muted); knob = muted != 0 ? 0 : (float)Math.Sqrt(v); }',
+  '      float peak; meter.GetPeakValue(out peak); float now = peak * knob;',
+  '      if (rest > 0) rest--;',
+  '      else if (now > 0.12f && now > usual * 2 + 0.08f) { rest = 40; Say("L " + (int)(now * 100)); }',
+  '      usual = usual * 0.97f + now * 0.03f;',
+  '    } catch { meter = null; Thread.Sleep(3000); }',
+  '  }',
+  '}',
+  'public static void Run(int owner, int ms, int sites, int hands, int ears) {',
   '  Thread t = new Thread(new ThreadStart(Keys)); t.IsBackground = true; t.Start();',
   '  if (sites != 0) { Thread p = new Thread(delegate() { Pages(owner); }); p.IsBackground = true; p.Start(); }',
   '  if (hands != 0) { Thread d = new Thread(delegate() { Hands(owner); }); d.IsBackground = true; d.Start(); }',
+  '  if (ears != 0) { Thread e = new Thread(new ThreadStart(Ears)); e.IsBackground = true; e.Start(); }',
   '  string last = null; string lastFront = null; int n = 0; int full = 0; int mic = 0; uint frontPid = 0; string front = ""; IntPtr lastFg = IntPtr.Zero;',
   '  while (true) {',
   '    if (n++ % 8 == 0) { try { System.Diagnostics.Process.GetProcessById(owner); } catch { return; } }',
@@ -425,7 +457,7 @@ const WATCH_CS = [
   '  }',
   '}',
   // the same on a thread of its own, leaving PowerShell free to run MUSIC_PS
-  'public static void Go(int owner, int ms, int sites, int hands) { Thread t = new Thread(delegate() { Run(owner, ms, sites, hands); Environment.Exit(0); }); t.Start(); }',
+  'public static void Go(int owner, int ms, int sites, int hands, int ears) { Thread t = new Thread(delegate() { Run(owner, ms, sites, hands, ears); Environment.Exit(0); }); t.Start(); }',
   '} }',
 ].join(' ');
 
@@ -569,6 +601,7 @@ function onWindows(line) {
   if (line.startsWith('M ')) return onMusic(line.slice(2));
   if (line === 'P' || line.startsWith('P ')) return onPage(line.slice(2));
   if (line.startsWith('A ')) { frontH = Number(line.slice(2)) || 0; return; }
+  if (line.startsWith('L ')) { if (settings.loud) send('buddy-loud', Math.min(100, Math.max(0, Number(line.slice(2)) || 0))); return; }
   if (line.startsWith('D ')) {
     const m = /^D (shake|shove|tug|grab|tow) ([01])$/.exec(line);
     if (m && m[1] === 'grab') onGrab(m[2] === '1');
@@ -615,7 +648,7 @@ function startWatcher() {
     platforms = [];
   });
   child.stdin.on('error', () => {});
-  const args = `${process.pid}, 120, ${settings.pages ? 1 : 0}, ${settings.meddle ? 1 : 0}`;
+  const args = `${process.pid}, 120, ${settings.pages ? 1 : 0}, ${settings.meddle ? 1 : 0}, ${settings.loud ? 1 : 0}`;
   const run = settings.music ? `[Buddy.Watch]::Go(${args}); ${MUSIC_PS}` : `[Buddy.Watch]::Run(${args})`;
   child.stdin.write(`Add-Type -ReferencedAssemblies UIAutomationClient, UIAutomationTypes -TypeDefinition '${WATCH_CS}'; ${run}\n`);
 }
@@ -638,7 +671,11 @@ ipcMain.on('buddy-meddle', (_e, what) => {
   if (what === 'back') { if (watcher) watcher.stdin.write('D back 0 0 0\n'); return; }
   if (what === 'letgo') return endHold('click');
   if (what === 'unblock') return comeBack(6);
-  if (what === 'prints') return send('buddy-meddled', { what, ok: !presence.full && printsToPointer() });
+  if (what === 'prints') {
+    // the walk reports back when he gets to the end of the trail
+    if (presence.full || dragOffset || fall || walk || chase || holding || war || !printsToPointer()) send('buddy-meddled', { what, ok: false });
+    return;
+  }
   if (!['shake', 'shove', 'tow', 'tug', 'hold', 'war', 'block'].includes(what)) return;
   if (presence.full || dragOffset || fall || walk || chase || holding || war) return send('buddy-meddled', { what, ok: false });
   if (what === 'war') startWar();
@@ -771,7 +808,7 @@ ipcMain.on('buddy-roam', (_e, on) => {
   const tx = a.x + Math.random() * (a.width - WIN_W);
   const ty = Math.min(a.y + Math.random() * (a.height - WIN_H * 0.6) - HEAD_PAD / 2, floorY(a));
   showPrints({ x: b.x + WIN_W / 2, y: b.y + WIN_H - FOOT_PAD }, { x: tx + WIN_W / 2, y: ty + WIN_H - FOOT_PAD });
-  walk = { x: b.x, y: b.y, tx, ty, step: 5 };
+  walk = { x: b.x, y: b.y, tx, ty, pace: PRINT_PACE };
 });
 
 // Where he would stand on window number i of the list: on its top edge, as near to where he
@@ -793,9 +830,9 @@ function footing(i) {
 }
 
 // a purposeful walk, quicker than a wander, with something to do at the end of it
-function errand(tx, ty, then) {
+function errand(tx, ty, then, pace = 0) {
   const b = win.getBounds();
-  walk = { x: b.x, y: b.y, tx, ty, step: 6, then };
+  walk = { x: b.x, y: b.y, tx, ty, step: 6, pace, then };
   send('buddy-meddling');
 }
 
@@ -872,16 +909,24 @@ function stalkPointer(what) {
 }
 
 // Footprints from where he stands to where the pointer is, in a window of their own that
-// clicks pass straight through. Gone in a few seconds.
+// clicks pass straight through, and he walks along them as they appear. Gone in a few seconds.
 function printsToPointer() {
-  if (printWins.size || !win || win.isDestroyed()) return false;
+  if (printWins.size || !win || win.isDestroyed() || !settings.wander) return false;
   const a = area();
   const b = win.getBounds();
   const c = screen.getCursorScreenPoint();
   const from = { x: b.x + WIN_W / 2, y: b.y + WIN_H - FOOT_PAD };
   let to = { x: Math.min(Math.max(c.x, a.x), a.x + a.width), y: Math.min(Math.max(c.y, a.y), a.y + a.height) };
   if (Math.hypot(to.x - from.x, to.y - from.y) < 260) to = { x: a.x + a.width - (from.x - a.x), y: a.y + a.height * 0.3 };
-  return showPrints(from, to);
+  // he makes them himself: he walks the same line, and each one appears as he passes, wherever on the
+  // screen it leads, and the renderer sends him home again afterwards
+  const tx = clampX(a, to.x - WIN_W / 2);
+  const ty = Math.min(Math.max(to.y - (WIN_H - FOOT_PAD), a.y - HEAD_PAD), floorY(a));
+  if (!showPrints(from, { x: tx + WIN_W / 2, y: ty + WIN_H - FOOT_PAD })) return false;
+  if (!awayFrom) awayFrom = { perch };
+  perch = null;
+  errand(tx, ty, () => send('buddy-meddled', { what: 'prints', ok: true }), PRINT_PACE);
+  return true;
 }
 
 // a trail between two points on his screen; a few trails can be fading at once
@@ -912,7 +957,7 @@ function showPrints(from, to) {
     if (win && !win.isDestroyed()) win.moveTop(); // he stands on them, not under
   });
   w.on('closed', () => printWins.delete(w));
-  w.loadFile('prints.html', { hash: [from.x - a.x, from.y - a.y, to.x - a.x, to.y - a.y].map(Math.round).join(',') });
+  w.loadFile('prints.html', { hash: [from.x - a.x, from.y - a.y, to.x - a.x, to.y - a.y, PRINT_PACE].map(Math.round).join(',') });
   setTimeout(() => { if (!w.isDestroyed()) w.close(); }, 15000);
   return true;
 }
@@ -994,7 +1039,10 @@ function stepWalk() {
   const dx = walk.tx - walk.x;
   const dy = walk.ty - walk.y;
   const d = Math.hypot(dx, dy);
-  const step = walk.step || WALK_STEP;
+  // a walk with a pace goes by the clock, not by the tick, so it takes exactly as long as planned
+  const tick = Date.now();
+  const step = walk.pace ? (walk.pace * Math.min(100, tick - (walk.at || tick - 16))) / 1000 : walk.step || WALK_STEP;
+  walk.at = tick;
   const done = d <= step;
   walk.x = done ? walk.tx : walk.x + (dx / d) * step;
   walk.y = done ? walk.ty : walk.y + (dy / d) * step;
@@ -1628,6 +1676,8 @@ function setSetting(key, value) {
   }
   if (key === 'gravity' || key === 'perch') refreshPlatforms();
   if (key === 'music' || key === 'pages') { lastSite = ''; restartWatcher(); }
+  if (key === 'loud' && !settings.meddle) restartWatcher(); // the helper only listens to the level while this is on
+  if (key === 'loud' && settings.meddle) setTimeout(restartWatcher, 700);
   if (key === 'meddle') {
     // the helper only listens for orders while this is on; switched off, it first puts
     // back whatever he shoved
@@ -1768,6 +1818,7 @@ function buildMenu() {
     { ...toggle('Go quiet in fullscreen and on calls', 'autoQuiet'), enabled: process.platform === 'win32' },
     toggle('Gentle reminders', 'reminders'),
     { ...toggle('Bob along when I type', 'typing'), enabled: process.platform === 'win32' },
+    { ...toggle('Jump at loud sounds', 'loud'), enabled: process.platform === 'win32' },
     { ...toggle('Notice what I\'m doing', 'notice'), enabled: process.platform === 'win32' },
     { ...toggle('Listen to my music', 'music'), enabled: process.platform === 'win32' },
     { ...toggle('Notice which sites I\'m on', 'pages'), enabled: process.platform === 'win32' },

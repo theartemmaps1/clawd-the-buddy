@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('buddy', {
   onRoomToggle: on('buddy-room-toggle'),
   onMeddled: on('buddy-meddled'),
   onMeddling: on('buddy-meddling'),
+  onLoud: on('buddy-loud'),
 
   pomodoroEnded: () => ipcRenderer.send('buddy-pomodoro-ended'),
   goBed: () => ipcRenderer.send('buddy-go-bed'),
