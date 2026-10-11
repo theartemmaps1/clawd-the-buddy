@@ -5,10 +5,11 @@
   "main": "main.js",
   "license": "MIT",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node --test"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^44.7.0"
   },
   "allowScripts": {
     "electron@33.4.11": true

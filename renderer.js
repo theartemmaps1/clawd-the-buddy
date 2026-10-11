@@ -103,6 +103,7 @@ let gift = null; // { g, until } while he is holding a present out
 let guest = null; // { f, step, timer } while a friend's Clawd is visiting
 let editKind = 'note'; // what the text box is for: note | name | teach | invite
 let hushUntil = 0; // a big announcement is up: no idle thoughts or mood remarks over it
+let earsUntil = 0; // too many loud bangs: his hands stay over his ears until it has been quiet this long
 let fleeing = false; // backing away from a cursor that hurt him
 let cornered = ''; // hurt, and sitting in a corner of the screen: 'l' or 'r'
 let cornering = false; // on his way to one
@@ -196,7 +197,8 @@ function render() {
   const huddled = showMood && mood === 'hurt' && cornered && !fx && state === 'idle';
   // a pet brings its own eyes, but the smile and blush he already had stay on
   const kept = fx === 'pet' && mood !== 'content' && !MOODLESS_STATES.includes(state);
-  document.body.className = state + (fx ? ' fx-' + fx : '') + (showMood ? ' mood-' + mood : '') + (kept ? ' kept-' + mood : '') + (sleepy ? ' night' : '') + (quiet ? ' quiet' : '') + (cry ? ' cry' : '') + (sulking ? ' sulk' : '') + (huddled ? ' cornered' : '') + (holdingPtr ? ' holding' : '') + (palOn ? ' pal' : '');
+  const ears = Date.now() < earsUntil && !['sleep', 'fly', 'fall', 'held', 'walk'].includes(fx);
+  document.body.className = state + (fx ? ' fx-' + fx : '') + (showMood ? ' mood-' + mood : '') + (kept ? ' kept-' + mood : '') + (sleepy ? ' night' : '') + (quiet ? ' quiet' : '') + (cry ? ' cry' : '') + (sulking ? ' sulk' : '') + (huddled ? ' cornered' : '') + (holdingPtr ? ' holding' : '') + (palOn ? ' pal' : '') + (ears ? ' ears' : '');
   const d = document.body.dataset;
   d.prop = state === 'working' ? prop : '';
   d.focus = focusUntil ? '1' : '';
@@ -1829,6 +1831,7 @@ visitorEl.addEventListener('click', () => {
 
 window.buddy.onDo((msg) => {
   const what = msg && msg.what;
+  if (what === 'bedtime') return putToBed(); // before touch(): being tucked in is not being poked
   touch();
   if (what === 'album') {
     // leafing through the album sets him remembering
@@ -2287,6 +2290,24 @@ window.buddy.onMeddled((m) => {
       feel.envy = Math.max(0, feel.envy - 0.4);
       say(pick(['Fine. Take it.', 'Okay, okay! Here.', 'There. Was that so hard? Looking at me?']), 2500);
     } else say(pick(['…my arms got tired.', 'It was wriggling. Have it back.', 'Oh, all right. Here.']), 2500);
+    return;
+  }
+  if (m.what === 'wiped') {
+    // you are scrubbing his footprints off the screen
+    lastActivity = now;
+    did('wiped');
+    if (quiet || fx === 'sleep') return;
+    if (mood === 'mischievous') {
+      // a clean screen is an invitation
+      bump('mischief', -0.15);
+      say(pick(['Missed a spot. Here, have some more.', 'Oh good, a clean screen. Hehehe.', 'You wipe, I walk. Teamwork.']), 2800);
+      setTimeout(() => { if (meddleOn && !quiet && !dragging && mood === 'mischievous') meddle('prints'); }, 3500);
+    } else if (mood === 'grumpy') {
+      say(pick(['I liked them there.', 'Hmph. They suited the place.']), 2500);
+    } else {
+      bump('shame', 0.5);
+      say(pick(['…sorry about the mud.', 'I was going to clean that up. Honest.', 'Oh. You\'re wiping. I\'ll just… stand here.', 'I should have wiped my feet.']), 2800);
+    }
     return;
   }
   const done = MEDDLED[m.what];
@@ -3169,15 +3190,28 @@ window.buddy.onKey(() => {
 // ---- loud noises: the speakers suddenly got much louder than they were ----
 
 // The main process says only that it happened, and how loud (0..100). How he takes it
-// depends on who he is and how he is feeling; the fifth bang in a couple of minutes is
-// less of a shock and more of an annoyance.
+// depends on who he is and how he is feeling; by the fifth bang in a couple of minutes he
+// has had enough, and puts his hands over his ears until it has been quiet for a while.
 let lastBang = 0;
 let bangs = [];
+let earsTimer = null;
+
+function coverEars() {
+  earsUntil = Date.now() + 12000;
+  clearTimeout(earsTimer);
+  earsTimer = setTimeout(() => {
+    render();
+    if (!quiet && !fx && state === 'idle') say(pick(['…is it over?', 'Is it safe to come out?', '*lowers hands* …finally.', 'Quiet. Lovely, lovely quiet.']), 2500);
+  }, 12050);
+  render();
+}
 
 function bang(level) {
   const now = Date.now();
   // not his own chirps, and not while he is tucked away in quiet mode
-  if (!loudOn || quiet || now - lastSfx < 900 || now - lastBang < 4000 || dragging || hiding) return;
+  if (!loudOn || quiet || now - lastSfx < 900 || dragging || hiding) return;
+  if (now < earsUntil) return coverEars(); // still going: the hands stay where they are
+  if (now - lastBang < 4000) return;
   lastBang = now;
   bangs = bangs.filter((t) => now - t < 2 * 60000);
   bangs.push(now);
@@ -3197,10 +3231,10 @@ function bang(level) {
   lastActivity = now;
   hushUntil = now + 3000;
   if (bangs.length >= 5) {
-    // it keeps happening: he has stopped jumping and started minding
+    // it keeps happening: he has stopped jumping and put his hands over his ears
     bump('irritation', 0.25);
-    setFx('eyeroll', 1500);
-    say(pick(['Is it going to keep doing that?', 'Again? Really?', 'Could we turn it down a bit?', 'My shell is ringing.']), 3000);
+    coverEars();
+    say(pick(['Is it going to keep doing that?', 'Again? Really?', 'Could we turn it down a bit?', 'My shell is ringing.', '*hands over ears*', 'LA LA LA. Can\'t hear it.', 'Tell me when it stops.']), 3000);
     return;
   }
   if (trait('wise') && !big) {
@@ -3324,7 +3358,10 @@ function writeDiary() {
       seen.tea && 'Three things broke in a row, so I put the kettle on.',
       seen.clash && 'Two Claudes went for the same file at once. I told on them.',
       seen.prank && 'I played a trick on them. They had it coming. A little.',
+      seen.wiped && 'I left mud on the screen and they wiped it up after me.',
+      seen.peekaboo && 'We played peekaboo. They came back every single time.',
       seen.grateful && 'They looked after me right when I needed it. I won\'t forget.',
+      seen.tucked && 'They carried me to bed and tucked me in.',
       seen.homesick && 'I was up on a window for ages. I missed my own spot.',
       seen.helper >= 4 && `I sent ${seen.helper} helpers out and every one of them came back.`,
       seen.omen && belief && `I worked something out today: ${omenText(belief)}.`,
@@ -4243,7 +4280,7 @@ let goneSince = 0; // when the mouse and keyboard went quiet, once that has last
 let lateHour = -1;
 
 // curiosity
-const cur = { sx: 0, sy: 0, dx: 0, dy: 0, dist: 9999, movedAt: Date.now(), was: 9999, wasAt: 0 }; // cursor, relative to Clawd
+const cur = { x: 0, y: 0, sx: 0, sy: 0, dx: 0, dy: 0, dist: 9999, movedAt: Date.now(), was: 9999, wasAt: 0 }; // cursor, relative to Clawd
 let wander = true;
 let gravity = true;
 let away = false; // off investigating, not at home
@@ -4540,7 +4577,7 @@ window.buddy.onBounce(() => {
   say(pick(['Boing!', 'Oof!', 'Ow!', 'Bonk!', 'Bounce!', 'Ouch-ish!']), 1200);
 });
 
-window.buddy.onLanded(({ impact, placed, perch, jump, down }) => {
+window.buddy.onLanded(({ impact, placed, perch, jump, down, bed }) => {
   if (dragging) return; // caught again before he settled
   perched = !!perch;
   if (down) {
@@ -4549,6 +4586,7 @@ window.buddy.onLanded(({ impact, placed, perch, jump, down }) => {
     setFx(walking ? 'walk' : '', 0);
     return;
   }
+  if (bed && tuckedIn()) return; // carried to his bed and set down in it
   if (jump) {
     // he meant to: no stars, and what he says next is about the window
     sfx('bounce');
@@ -4770,7 +4808,7 @@ window.addEventListener('drop', (e) => {
 
 // The main process reports the cursor (in window coordinates) even when it is outside the
 // window. That drives the eyes, and lets clicks pass through the transparent parts.
-window.buddy.onCursor(({ x, y, sx, sy }) => {
+window.buddy.onCursor(({ x, y, sx, sy, off }) => {
   const r = svg.getBoundingClientRect();
   const now = Date.now();
   if (sx !== cur.sx || sy !== cur.sy) {
@@ -4782,22 +4820,13 @@ window.buddy.onCursor(({ x, y, sx, sy }) => {
   cur.dx = x - (r.left + r.width / 2);
   cur.dy = y - (r.top + r.height / 2);
   cur.dist = Math.hypot(cur.dx, cur.dy) || 1;
-  // shy: once you come close he cannot hold your eye, and edges back a little
-  const bashful = trait('shy') && cur.dist < 230 && state === 'idle' && fx !== 'sleep';
+  cur.x = x;
+  cur.y = y;
   // lean toward the cursor when it is close
-  const lean = Math.max(-1, Math.min(1, cur.dx / 150)) * 7 * Math.max(0, 1 - cur.dist / 450) * (mood === 'grumpy' || mood === 'hurt' ? -1 : bashful ? -0.6 : 1);
+  const lean = Math.max(-1, Math.min(1, cur.dx / 150)) * 7 * Math.max(0, 1 - cur.dist / 450) * (mood === 'grumpy' || mood === 'hurt' ? -1 : bashful() ? -0.6 : 1);
   document.body.style.setProperty('--tilt', `${lean.toFixed(1)}deg`);
-
-  const k = 200 / r.width; // CSS px -> SVG units
-  const dx = (x - (r.left + r.width / 2)) * k;
-  const dy = (y - (r.top + r.height * 0.45)) * k;
-  const dist = Math.hypot(dx, dy) || 1;
-  // blushing: eyes down and to whichever side you are not on
-  const averted = bashful || document.body.classList.contains('mood-embarrassed');
-  const reach = averted ? 1 : Math.min(1, dist / 250);
-  const shy = mood === 'grumpy' || averted ? -1 : 1; // sulking: looks pointedly away
-  document.body.style.setProperty('--lx', `${((dx / dist) * 6 * reach * shy).toFixed(1)}px`);
-  document.body.style.setProperty('--ly', `${(averted ? 4 : (dy / dist) * 5 * reach * shy).toFixed(1)}px`);
+  aimEyes();
+  peekaboo(!!off, now);
 
   // the cursor charging straight at him makes him flinch
   if (now - cur.wasAt > 90) {
@@ -4834,6 +4863,86 @@ window.buddy.onCursor(({ x, y, sx, sy }) => {
     }
   }
 });
+
+// shy: once you come close he cannot hold your eye, and edges back a little
+const bashful = () => trait('shy') && cur.dist < 230 && state === 'idle' && fx !== 'sleep';
+
+// Where his eyes go: after the pointer, or away from it while he is sulking, shy or blushing.
+function aimEyes() {
+  const r = svg.getBoundingClientRect();
+  const k = 200 / r.width; // CSS px -> SVG units
+  const dx = (cur.x - (r.left + r.width / 2)) * k;
+  const dy = (cur.y - (r.top + r.height * 0.45)) * k;
+  const dist = Math.hypot(dx, dy) || 1;
+  // blushing: eyes down and to whichever side you are not on, except for a stolen glance
+  const averted = bashful() || (!peeking && document.body.classList.contains('mood-embarrassed'));
+  const reach = averted ? 1 : Math.min(1, dist / 250);
+  const shy = mood === 'grumpy' || averted ? -1 : 1; // sulking: looks pointedly away
+  document.body.style.setProperty('--lx', `${((dx / dist) * 6 * reach * shy).toFixed(1)}px`);
+  document.body.style.setProperty('--ly', `${(averted ? 4 : (dy / dist) * 5 * reach * shy).toFixed(1)}px`);
+}
+
+// Blushing, he keeps stealing a look at you and snatching it away again. This runs on its
+// own clock because the cursor is only reported while it moves.
+let peeking = false;
+(function glance() {
+  const red = document.body.classList.contains('mood-embarrassed');
+  peeking = red && !peeking;
+  if (red) aimEyes();
+  setTimeout(glance, peeking ? 450 : 2200 + Math.random() * 3200);
+})();
+
+// Peekaboo: the pointer goes from him to the near edge of the screen (the main process says
+// when it is there), stays a moment and comes straight back to him.
+const boo = { nearAt: 0, since: 0, backAt: 0, last: 0, timer: null };
+
+function peekaboo(off, now) {
+  if (!off && cur.dist < 280) boo.nearAt = now;
+  if (off && !boo.since) {
+    // only when he is at home with nothing else going on, and not in a mood for games
+    const free = !fx && !down && !dragging && !away && !walking && !quiet && !guest && state === 'idle' && !['grumpy', 'hurt', 'scared'].includes(mood);
+    if (!free || now - boo.nearAt > 1500 || now - boo.last < (ageIndex() === 0 ? 6000 : 40000)) return;
+    boo.since = now;
+    boo.timer = setTimeout(() => {
+      if (fx || quiet || state !== 'idle') return;
+      setFx('look', 1600);
+      say(ageIndex() === 2 ? pick(['…hello?', 'Oh, are we doing this.']) : pick(['Where did you go?', 'Hello? …hello?', 'You were just here!']), 2200);
+    }, 900);
+    return;
+  }
+  if (!off && boo.since) {
+    clearTimeout(boo.timer);
+    const gone = now - boo.since;
+    boo.since = 0;
+    boo.backAt = gone > 350 && gone < 8000 ? now : 0; // a brush against the edge is not hiding
+  }
+  if (off || !boo.backAt) return;
+  if (now - boo.backAt > 2000) { boo.backAt = 0; return; }
+  if (cur.dist > 280) return;
+  boo.backAt = 0;
+  if (down || dragging || quiet || state !== 'idle') return;
+  boo.last = lastActivity = now;
+  did('peekaboo');
+  const age = ageIndex();
+  if (age === 0) {
+    // the best game there is
+    bump('joy', 0.15);
+    bump('excite', 0.25);
+    setFx('jump', 800);
+    sfx('cheer');
+    say(pick(['Peekaboo!', 'Boo! Again! Again!', '*squeals*', 'There you are!']), 2200);
+  } else if (age === 2) {
+    setFx('eyeroll', 1500);
+    say(pick(['I\'m not a baby.', 'Peekaboo. Really.', 'I could see you the whole time.', 'How old do you think I am?']), 2600);
+  } else {
+    bump('joy', 0.08);
+    setFx('surprise', 900);
+    sfx('poke');
+    say(trait('anxious') ? pick(['Don\'t DO that!', 'I thought you had gone for good!'])
+      : trait('wise') ? pick(['You were never gone. Only out of sight.', 'Peekaboo. A game about trust, really.'])
+        : pick(['Peekaboo!', 'Oh! There you are.', 'Boo yourself!', 'I knew you were there. Mostly.', 'Found you!']), 2400);
+  }
+}
 
 // What he reads into the way the cursor moves: swipes and circles he can learn as tricks,
 // circling fast enough to make him dizzy, and the shake of someone who has lost the pointer.
@@ -5520,6 +5629,61 @@ window.buddy.onAskMood(() => {
   const born = new Date(`${life.born}T12:00:00`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   say((life.name ? `${life.name} here. ` : '') + pick(MOOD_REPORT[mood] || MOOD_REPORT.content) + (isNight() && mood === 'content' ? ' A bit sleepy.' : '') + room + timer + ` We're: ${BOND_NAMES[bondLevel()].toLowerCase()}.` + food + ` I'm a ${AGE_NAMES[ageIndex()]}${life.gen > 1 ? ` (generation ${life.gen})` : ''}, born ${born}.` + (more.length ? ' ' + more[Math.floor(Math.random() * more.length)] : ''), 10000, true);
 });
+
+// "Put him to bed" in the menu: off to his bed if he has one, otherwise he nods off where he
+// stands. He turns down a request only when he is in the middle of something he can't drop,
+// and the menu can simply be tried again. Any hook event, poke or loud noise wakes him as usual.
+function putToBed() {
+  if (fx === 'sleep') { say('Zzz…', 1500, true); return; }
+  if (goingToBed) { say('I\'m going, I\'m going…', 2000, true); return; }
+  if (rps || hiding || guest || gift || asking || editingNote || blocking || holdingPtr || dragging || down) {
+    say(pick(['Not right now, I\'m in the middle of something.', 'Can it wait a minute?', 'Hang on, I\'m busy.']), 2500, true);
+    return;
+  }
+  bedTried = true; // the nightly walk to bed is done: this is it
+  if (chasing) stopChase(false);
+  // not stopRoam(): that would send him home, and the main process drops that trip itself
+  roaming = false;
+  clearTimeout(roamTimer);
+  away = returning = stalking = cornering = inching = false; // each would claim his arrival
+  cornered = '';
+  if (bedOn) {
+    goingToBed = walking = true;
+    setFx('walk', 0);
+    const age = ageIndex();
+    say(age === 0 ? pick(['Nigh-nigh…', 'Sleepy time!']) : age === 2 ? pick(['Ugh. Fine. I was tired anyway.', 'I wasn\'t going to stay up. …Okay, maybe I was.']) : pick(['*yawn* Okay, okay…', 'Tuck me in?', 'Off to bed, then.', 'Goodnight!']), 2500);
+    window.buddy.goBed();
+    return;
+  }
+  setFx('sleep', 0);
+  nextDream = Date.now() + 20000 + Math.random() * 30000;
+  bubble.classList.remove('show');
+}
+
+// Carried to his bed and let go there (the main process has already lowered him into it): he
+// goes to sleep, as with "Put him to bed" but with no walk. Carried while asleep, he nods off
+// again. False when he is in the middle of something he can't drop; then it was only a
+// landing like any other.
+function tuckedIn() {
+  if (rps || guest || gift || asking || editingNote) return false;
+  bedTried = true; // the nightly walk to bed is done: this is it
+  away = walking = returning = stalking = cornering = inching = goingToBed = false;
+  cornered = '';
+  perched = false;
+  feel.homesick = 0;
+  did('tucked');
+  const age = ageIndex();
+  say(age === 0 ? pick(['Nigh-nigh…', 'Sleepy time!', 'Bed! Mine!'])
+    : mood === 'hurt' ? pick(['…thank you. Stay a little?', '*sniff* …goodnight.'])
+    : mood === 'scared' ? pick(['Keep the light on?', 'Stay till I fall asleep?'])
+    : mood === 'grumpy' ? pick(['Hmph. …fine. I was tired anyway.', 'I can tuck myself in. …Thanks.'])
+    : age === 2 ? pick(['Ugh. Fine. I was tired anyway.', 'I wasn\'t going to stay up. …Okay, maybe I was.'])
+    : pick(['Oh, my bed. Thank you.', '*yawn* Tuck me in?', 'Mmh… goodnight!', 'Carried and tucked in. Nice service.']), 2500);
+  sfx('yawn'); // before he is asleep: nothing sounds while he is
+  setFx('sleep', 0);
+  nextDream = Date.now() + 20000 + Math.random() * 30000;
+  return true;
+}
 
 // Nod off after a couple of quiet minutes (much sooner when tired or late); any hook event or
 // poke wakes him. Asleep, he mumbles now and then.

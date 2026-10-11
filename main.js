@@ -4,12 +4,14 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const hookGuard = require('./hook-guard');
 
 // Clawd chirps without ever being clicked first
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 const PORT = Number(process.env.BUDDY_PORT || 8787);
 const MAX_BODY = 256 * 1024; // hook payloads can contain file contents; cap what we read
+const MAX_SESSIONS = 64; // session ids come from whoever posts, so the maps keyed by them are capped
 
 const WIN_W = 240;
 const WIN_H = 280;
@@ -83,6 +85,8 @@ let savesHeld = false; // dev sandbox: nothing he remembers is written to disk
 // his room: a window of its own with the bed in it, which he walks back to when he is sleepy
 const BED_W = 300;
 const BED_H = 160;
+const BED_GENTLE = 14; // px per tick: let go of him faster than this over the bed and he is thrown, not tucked in
+const BED_REACH = 24; // how far to either side of the mattress he can be let go and still be over it
 const ROOM_SCALE = 5; // room.html is drawn on a 60x32 grid
 // where each thing stands on that grid, so the window can be cut to their outlines
 const ROOM_BOXES = {
@@ -96,6 +100,7 @@ const ROOM_BOXES = {
 };
 let bedWin = null;
 let bedDrag = null;
+let bedInvited = false; // the bed is outlining itself because he is being carried over it
 
 // Claude Code session id -> pid of the process that sent its hooks, to find its window later
 const sessionPids = new Map();
@@ -909,7 +914,8 @@ function stalkPointer(what) {
 }
 
 // Footprints from where he stands to where the pointer is, in a window of their own that
-// clicks pass straight through, and he walks along them as they appear. Gone in a few seconds.
+// clicks pass straight through, and he walks along them as they appear. Gone in a few seconds,
+// or sooner if you scrub them off with the pointer.
 function printsToPointer() {
   if (printWins.size || !win || win.isDestroyed() || !settings.wander) return false;
   const a = area();
@@ -946,9 +952,21 @@ function showPrints(from, to) {
     skipTaskbar: true,
     focusable: false,
     show: false,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { preload: path.join(__dirname, 'prints-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   printWins.add(w);
+  w.origin = { x: a.x, y: a.y };
+  // the window is told where the pointer is and says how many prints are left each time one
+  // is rubbed out; he hears about it once, when you have plainly set about cleaning up
+  let wiped = 0;
+  let told = false;
+  w.webContents.ipc.on('prints-wiped', (_e, left) => {
+    wiped++;
+    if (left === 0) setTimeout(() => { if (!w.isDestroyed()) w.close(); }, 400);
+    if (told || (left !== 0 && wiped < 4)) return;
+    told = true;
+    send('buddy-meddled', { what: 'wiped', ok: true });
+  });
   w.setIgnoreMouseEvents(true);
   w.setAlwaysOnTop(true, 'floating');
   w.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -1179,6 +1197,7 @@ function trackCursor() {
       setPos(c.x - dragOffset.x, c.y - dragOffset.y);
       dragTrail.push({ x: c.x, y: c.y });
       if (dragTrail.length > 6) dragTrail.shift();
+      inviteBed(!!bedDrop({ x: c.x - dragOffset.x, y: c.y - dragOffset.y }, throwSpeed(dragTrail).speed));
     } else if (fall) {
       stepFall();
     } else if (walk) {
@@ -1198,6 +1217,10 @@ function trackCursor() {
     const key = rel.x + ',' + rel.y;
     if (key === last) return;
     last = key;
+    for (const w of printWins) if (!w.isDestroyed()) w.webContents.send('prints-cursor', { x: c.x - w.origin.x, y: c.y - w.origin.y });
+    // peekaboo: the pointer is up against (or past) the side of his screen that he is nearer to
+    const d = screen.getDisplayNearestPoint({ x: Math.round(b.x + WIN_W / 2), y: Math.round(b.y + WIN_H / 2) }).bounds;
+    rel.off = b.x + WIN_W / 2 < d.x + d.width / 2 ? c.x <= d.x + 1 : c.x >= d.x + d.width - 2;
     send('buddy-cursor', rel);
   }, 16);
 }
@@ -1224,6 +1247,19 @@ function endDrag() {
   const b = win.getBounds();
   const { vx, vy, speed } = throwSpeed(dragTrail);
   dragTrail = [];
+  inviteBed(false);
+
+  // set down on his bed: no fall, he is lowered into it in a short glide (the bed is home now)
+  // and the renderer takes it from there once he has arrived
+  const spot = bedDrop(b, speed);
+  if (spot) {
+    walk = {
+      x: b.x, y: b.y, tx: spot.x, ty: spot.y, step: 6, setHome: true,
+      then: () => send('buddy-landed', { impact: 0, bounces: 0, placed: true, bed: !!bedWin && !bedWin.isDestroyed() }),
+    };
+    win.moveTop();
+    return;
+  }
 
   if (settings.gravity && (speed > 3 || Math.abs(b.y - floorY(area())) > 2)) {
     fall = { x: b.x, y: b.y, vx, vy, peak: 0, bounces: 0, ground: null };
@@ -1367,10 +1403,36 @@ function createBed() {
   bedWin.on('closed', () => {
     bedWin = null;
     bedDrag = null;
+    bedInvited = false;
   });
   bedWin.webContents.on('did-finish-load', sendRoom);
   bedWin.loadFile('bed.html');
   bedWin.once('ready-to-show', () => { if (win && !win.isDestroyed()) win.moveTop(); });
+}
+
+// Where he would lie if he were let go here, or null when he is not over the bed (or is being
+// thrown rather than set down). He is held in the air, so the bed is generous above and beside.
+function bedDrop(b, speed) {
+  if (!settings.bed || !bedWin || bedWin.isDestroyed() || speed > BED_GENTLE) return null;
+  const bed = bedWin.getBounds();
+  const [bx, by, bw] = ROOM_BOXES.bed.map((v) => v * ROOM_SCALE);
+  const cx = b.x + WIN_W / 2;
+  const feet = b.y + WIN_H - FOOT_PAD;
+  if (cx < bed.x + bx - BED_REACH || cx > bed.x + bx + bw + BED_REACH) return null;
+  if (feet < bed.y + by - 90 || feet > bed.y + BED_H + 40) return null;
+  const a = screen.getDisplayNearestPoint({ x: Math.round(bed.x + BED_W / 2), y: Math.round(bed.y + BED_H / 2) }).workArea;
+  return {
+    x: bed.x + BED_W / 2 - WIN_W / 2,
+    // the same spot as when he walks over: on the floor with gravity, floating into it without
+    y: settings.gravity ? floorY(a) : bed.y + BED_H - (WIN_H - FOOT_PAD) - 6,
+  };
+}
+
+// While he is carried over the bed it outlines itself: let go, and he is tucked in.
+function inviteBed(on) {
+  if (on === bedInvited) return;
+  bedInvited = on;
+  if (bedWin && !bedWin.isDestroyed()) bedWin.webContents.send('room-invite', on);
 }
 
 // Tell the room what is standing in it, and cut the window down to those things so the empty
@@ -1419,19 +1481,30 @@ ipcMain.on('bed-drag', (e, on) => {
   }
 });
 
-// The renderer says he is sleepy: walk to the bed, and make that home.
+// The renderer says he is sleepy (or you put him to bed): walk to the bed, and make that home.
 ipcMain.on('buddy-go-bed', () => {
   if (!win || win.isDestroyed() || !bedWin || bedWin.isDestroyed() || dragOffset || fall) return send('buddy-walk-done');
-  const bed = bedWin.getBounds();
-  const b = win.getBounds();
-  const tx = bed.x + BED_W / 2 - WIN_W / 2;
-  // with gravity he stays on his own level; without, he floats over and settles into the bed
-  const ty = settings.gravity ? b.y : bed.y + BED_H - (WIN_H - FOOT_PAD) - 6;
-  if (Math.hypot(tx - b.x, ty - b.y) < 12) return send('buddy-walk-done');
   chase = false;
   cornerFrom = null;
-  walk = { x: b.x, y: b.y, tx, ty, setHome: true };
-  win.moveTop();
+  awayFrom = null; // the bed is home now, so there is nothing to go back to
+  const go = () => {
+    if (!win || win.isDestroyed() || !bedWin || bedWin.isDestroyed() || dragOffset) return send('buddy-walk-done');
+    const bed = bedWin.getBounds();
+    const b = win.getBounds();
+    const tx = bed.x + BED_W / 2 - WIN_W / 2;
+    // with gravity he stays on his own level; without, he floats over and settles into the bed
+    const ty = settings.gravity ? b.y : bed.y + BED_H - (WIN_H - FOOT_PAD) - 6;
+    if (Math.hypot(tx - b.x, ty - b.y) < 12) return send('buddy-walk-done');
+    walk = { x: b.x, y: b.y, tx, ty, setHome: true };
+    win.moveTop();
+  };
+  // up on a window he gets down first: walking along it he would drop off the edge halfway
+  if (!perch || !settings.gravity) return go();
+  const b = win.getBounds();
+  perch = null;
+  walk = null;
+  fall = { x: b.x, y: b.y, vx: 0, vy: 0, peak: 0, bounces: 0, ground: null, down: true, then: go };
+  send('buddy-fly', { speed: 0, down: true });
 });
 
 // Hurt, he takes himself off to a bottom corner of the screen and lives there until he is
@@ -1625,16 +1698,25 @@ ipcMain.on('buddy-focus', (_e, id) => focusSession(typeof id === 'string' ? id :
 
 // Hooks don't report token use, but each session's transcript does. This reads only the tail of
 // the transcript and forwards one number: the size of the latest request.
+// Windows and macOS file systems ignore case; Linux does not, so only fold case where it is safe.
+const foldCase = (p) => (process.platform === 'win32' || process.platform === 'darwin' ? p.toLowerCase() : p);
+const isInside = (file, dir) => foldCase(file).startsWith(foldCase(dir.endsWith(path.sep) ? dir : dir + path.sep));
+
 function checkContext(sid, file) {
   if (!sid || typeof file !== 'string' || !file.toLowerCase().endsWith('.jsonl')) return;
   const full = path.resolve(file);
-  const root = path.join(os.homedir(), '.claude') + path.sep;
-  if (!full.toLowerCase().startsWith(root.toLowerCase())) return; // Claude Code's own files only
+  const root = path.join(os.homedir(), '.claude');
+  if (!isInside(full, root)) return; // Claude Code's own files only
   const now = Date.now();
   if (now - (contextReadAt.get(sid) || 0) < 15000) return;
-  contextReadAt.set(sid, now);
+  hookGuard.remember(contextReadAt, sid, now, MAX_SESSIONS);
 
-  fs.promises.open(full, 'r').then(async (fh) => {
+  // The lexical check above can be fooled by a symlink, so check again on the real paths.
+  Promise.all([fs.promises.realpath(full), fs.promises.realpath(root)]).then(([real, home]) => {
+    if (!isInside(real, home)) return;
+    return fs.promises.open(real, 'r');
+  }).then(async (fh) => {
+    if (!fh) return;
     try {
       const { size } = await fh.stat();
       const len = Math.min(size, 512 * 1024);
@@ -1763,6 +1845,7 @@ function buildMenu() {
       submenu: tricks.length ? tricks.map((t) => ({ label: t.label, enabled: t.known, click: () => send('buddy-trick', t.id) })) : [{ label: 'None yet', enabled: false }],
     },
     { label: pomodoro ? 'Stop focus timer' : 'Start focus timer', click: () => { pomodoro = !pomodoro; send('buddy-pomodoro', pomodoro); } },
+    { label: 'Put him to bed', click: () => send('buddy-do', { what: 'bedtime' }) },
     { label: 'Leave a note…', click: () => edit('note') },
     { label: who.name ? `Rename ${who.name}…` : 'Give him a name…', click: () => edit('name') },
     {
@@ -1917,6 +2000,11 @@ function slim(p) {
 
 function startServer() {
   const server = http.createServer((req, res) => {
+    const refused = hookGuard.check(req, PORT);
+    if (refused) {
+      res.writeHead(refused);
+      return res.end();
+    }
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       return res.end('ok');
@@ -1959,10 +2047,10 @@ function startServer() {
         } else if (sid && process.platform === 'win32' && !sessionPids.has(sid) && (pidTries.get(sid) || 0) < 3) {
           // First contact from a session: note which process it is while the connection is
           // still open, so a click can bring its window forward later. Briefly holds the reply.
-          pidTries.set(sid, (pidTries.get(sid) || 0) + 1);
+          hookGuard.remember(pidTries, sid, (pidTries.get(sid) || 0) + 1, MAX_SESSIONS);
           const giveUp = setTimeout(finish, 500);
           return findPeerPid(req.socket.remotePort, (pid) => {
-            if (pid) sessionPids.set(sid, pid);
+            if (pid) hookGuard.remember(sessionPids, sid, pid, MAX_SESSIONS);
             clearTimeout(giveUp);
             finish();
           });

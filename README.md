@@ -123,6 +123,9 @@ wincing and puts the kettle on.
 
 Click to poke, double-click for a flip, rub to pet, drag to carry, flick to throw. Circle him
 quickly with the cursor and he gets dizzy; shake the mouse and he helps you find the pointer.
+Slip the pointer off the side of the screen he is nearer to and bring it straight back, and
+that is peekaboo: he wonders where you went and is glad to find you. A baby cannot get
+enough of it; a teenager is far too old for it.
 
 - **Snacks.** Drag a file or some selected text onto him. Only the file name and size are
   looked at; bigger files are more filling. He loves plain words, sniffs programs
@@ -159,7 +162,7 @@ on top. He gets scared by dangerous commands and hard throws, embarrassed when h
 cheers too soon, jealous when you type for ages without a glance at him, bored when he is kept
 waiting, and excited, proud and loving when things go well. Each has its own face. While he
 is red with embarrassment he cannot meet your eye: he looks down and away from the pointer,
-whichever side you come from. He is sleepy at night, and he cries when things go really badly.
+whichever side you come from, and every few seconds steals a quick glance at you. He is sleepy at night, and he cries when things go really badly.
 
 When he is hungry he says so, and every minute or so he rubs his tummy until he is fed.
 
@@ -211,8 +214,9 @@ something from the day: a green tick, a bug, a file, a commit, a snack, the ball
 - **Loud noises (Windows only).** When what the computer is playing suddenly gets much louder
   than it was, he jumps: a yelp, or a leap for a really loud one. Asleep, he is jolted awake.
   It depends on who he is: the wise one barely looks up, the anxious one is sure it is an
-  attack, a teenager insists he did not jump. With music on he blames the song. The fifth
-  bang in a couple of minutes annoys him instead. Pip jumps too. "Jump at loud sounds" in
+  attack, a teenager insists he did not jump. With music on he blames the song. By the fifth
+  bang in a couple of minutes he has had enough: he clamps his hands over his ears, screws
+  his eyes shut and stays that way until it has been quiet for a while. Pip jumps too. "Jump at loud sounds" in
   the menu turns it off.
 - **Music (Windows only, off by default).** Turn on "Listen to my music" and he hears what is
   playing in Spotify, a browser tab or any other player: notes drift up while it is on, he
@@ -242,6 +246,10 @@ something from the day: a green tick, a bug, a file, a commit, a snack, the ball
   is waiting for an answer, a focus timer is running or he is in quiet mode. Windows and
   the pointer are Windows only; the footprints work everywhere. The same switch covers the
   next few things.
+  - **Wiping up.** The footprints fade by themselves, but you can scrub them off: rub the
+    pointer across one and it smears, rub it again and it is gone. Clean up a few and he
+    notices. Usually he is sorry about the mud and goes red; grumpy, he liked them where
+    they were; mischievous, he takes a clean screen as an invitation and walks a new trail.
   - **Tug of war.** When he has dragged the pointer part of the way he often wants a fight
     for it: for four seconds he hauls it towards himself. Pull it further away than it
     started and you win; let it reach him and he does, and is smug about it.

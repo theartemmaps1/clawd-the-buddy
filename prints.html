@@ -6,6 +6,8 @@
 <style>
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; pointer-events: none; }
   .print { position: absolute; width: 18px; height: 22px; margin: -11px 0 0 -9px; shape-rendering: crispEdges; opacity: 0; animation: print 7s linear forwards; }
+  .smeared { filter: opacity(.45) blur(1px); scale: 1.25 1; }
+  .wiped { filter: opacity(0); scale: 1.6 1; transition: filter .25s, scale .25s; }
   @keyframes print { 0% { opacity: 0; } 2% { opacity: 0.75; } 70% { opacity: 0.6; } 100% { opacity: 0; } }
 </style>
 </head>

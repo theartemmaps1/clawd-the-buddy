@@ -462,6 +462,11 @@
   .fx-rub .armR { visibility: hidden; }
   .fx-rub .eye { animation: none; transform: translateY(5px); }
 
+  /* too many loud bangs: hands clamped over his ears, eyes screwed shut */
+  body.ears .arm { transform: translateY(-28px); }
+  body.ears .eye { animation: none; transform: scaleY(.2); }
+  body.ears .lid { opacity: 0; }
+
   /* shy: blushes when looked at or touched, eyes on the floor, fingers tapping together */
   body[data-persona="shy"][data-fidget="1"] .blush, body[data-persona="shy"].fx-fidget .blush,
   body[data-persona="shy"].fx-poke .blush, body[data-persona="shy"].fx-held .blush, body[data-persona="shy"].fx-wave .blush { opacity: .9; }

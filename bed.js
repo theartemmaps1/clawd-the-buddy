@@ -19,6 +19,9 @@ el.addEventListener('pointerup', release);
 el.addEventListener('pointercancel', release);
 window.addEventListener('blur', release);
 
+// he is being carried over the bed: it outlines itself, and if he is let go there he is tucked in
+window.bed.onInvite((on) => document.body.classList.toggle('invite', on));
+
 // which earned things are out, how tall the plant has grown, how far the scarf has got, and
 // whether the lamp is lit
 window.bed.onState((s) => {

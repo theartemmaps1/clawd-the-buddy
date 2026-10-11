@@ -1,9 +1,11 @@
 // Muddy footprints, left foot then right, from one point to another. The main process puts
 // the two points and his walking pace in the address (#x1,y1,x2,y2,pxPerSecond), so each
 // print turns up just after he has stepped there, and closes the window when they have faded.
+// It is also told where the pointer is: rubbing over a print smears it, and again wipes it off.
 const [x1, y1, x2, y2, pace] = location.hash.slice(1).split(',').map(Number);
 const NS = 'http://www.w3.org/2000/svg';
 const len = Math.hypot(x2 - x1, y2 - y1);
+const prints = [];
 
 if (Number.isFinite(len) && len > 0) {
   const ux = (x2 - x1) / len;
@@ -26,10 +28,29 @@ if (Number.isFinite(len) && len > 0) {
       r.setAttribute('fill', '#5a3b22');
       svg.appendChild(r);
     }
-    svg.style.left = Math.round(x1 + ux * i * 34 - uy * (side * 11 + wobble)) + 'px';
-    svg.style.top = Math.round(y1 + uy * i * 34 + ux * (side * 11 + wobble)) + 'px';
+    const x = Math.round(x1 + ux * i * 34 - uy * (side * 11 + wobble));
+    const y = Math.round(y1 + uy * i * 34 + ux * (side * 11 + wobble));
+    const delay = Math.round((i * 34 * 1000) / (pace > 0 ? pace : 300));
+    svg.style.left = x + 'px';
+    svg.style.top = y + 'px';
     svg.style.transform = `rotate(${Math.round(turn)}deg)`;
-    svg.style.animationDelay = Math.round((i * 34 * 1000) / (pace > 0 ? pace : 300)) + 'ms';
+    svg.style.animationDelay = delay + 'ms';
     document.body.appendChild(svg);
+    prints.push({ el: svg, x, y, from: performance.now() + delay, rubs: 0, over: false });
   }
 }
+
+window.prints.onCursor((c) => {
+  if (!c || typeof c.x !== 'number' || typeof c.y !== 'number') return;
+  const now = performance.now();
+  for (const p of prints) {
+    if (p.rubs > 1 || now < p.from) continue; // gone already, or he has not trodden it yet
+    const over = Math.hypot(c.x - p.x, c.y - p.y) < 20;
+    if (over && !p.over) {
+      p.rubs++;
+      p.el.classList.add(p.rubs > 1 ? 'wiped' : 'smeared');
+      if (p.rubs > 1) window.prints.wiped(prints.filter((q) => q.rubs < 2).length);
+    }
+    p.over = over;
+  }
+});
