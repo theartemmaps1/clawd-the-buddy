@@ -41,6 +41,30 @@ On the desktop his window is transparent; these are drawn on a plain background.
 
 ## Run it
 
+### Install (Windows)
+
+Download **Clawd-Setup-*x.y.z*.exe** from the
+[latest release](https://github.com/theartemmaps1/clawd-the-buddy/releases/latest) and run it.
+It installs for you only, so it needs no admin rights. The wizard asks where to put him,
+whether he should start with Windows, and whether to connect him to Claude Code (on by
+default; see below). The installer isn't code-signed yet, so Windows may say "Windows
+protected your PC": click **More info**, then **Run anyway**. `SHA256SUMS.txt` on the release
+lets you check the download.
+
+Running the installer again when he is already installed offers **Repair** (same version),
+**Update** (newer version) or **Uninstall**. His memories and settings are kept either way.
+
+The installed app checks GitHub for a new release a little after it starts and every six
+hours, downloads it in the background and asks before restarting (pick "Later" and it
+installs the next time he quits). "Check for updates…" in the menu checks right away, and
+"Check for updates automatically" turns the background checks off.
+
+To remove him, use Windows Settings → Apps → Clawd. The uninstaller asks whether to take his
+hooks out of Claude Code's `settings.json` (ticked by default) and whether to delete his
+memories, diary, photos and settings (unticked, and it can't be undone).
+
+### From source
+
 ```bash
 npm install
 npm start
@@ -57,7 +81,12 @@ part-way through unpacking; in that case unzip the downloaded Electron zip from
 
 ## Connect him to Claude Code
 
-Merge the `"hooks"` block from `claude-settings-hooks.json` into `~/.claude/settings.json`
+The installer can do this for you, and so can "Connect to Claude Code" in his menu: it adds
+his hooks to `~/.claude/settings.json`, leaves everything else in it alone, and saves a backup
+of the old file next to it first. A `settings.json` that isn't valid JSON is never changed.
+"Disconnect from Claude Code" takes them out again. Restart Claude Code afterwards either way.
+
+To do it by hand, merge the `"hooks"` block from `claude-settings-hooks.json` into `~/.claude/settings.json`
 (or a project's `.claude/settings.json`). If you already have a `"hooks"` section, add the
 events to it rather than replacing it. Then start a new Claude Code session.
 
@@ -352,7 +381,7 @@ something from the day: a green tick, a bug, a file, a commit, a snack, the ball
 - **Sound.** Small chirps for pokes, finished tasks, failures and "Claude needs you".
 
 The menu also has switches for sound, quiet mode, reminders, typing along, noticing, music, sites, curious
-wandering, gravity, sitting on windows, starting with Windows, and hiding him.
+wandering, gravity, sitting on windows, starting with Windows, checking for updates, and hiding him.
 
 ## Make him yours
 
@@ -369,7 +398,11 @@ wandering, gravity, sitting on windows, starting with Windows, and hiding him.
   forwarded to the UI; text is rendered with `textContent`, never as HTML.
 - Hook payloads can include commands and file paths, so don't expose this port anywhere else.
 - Everything he remembers, including the diary and the names of your project folders, is kept
-  in one save file in the app's data folder. Nothing leaves the machine.
+  in one save file in the app's data folder. Nothing about you or him leaves the machine.
+- The installed app asks GitHub whether there is a new release (see "Install") and downloads
+  it from there. That request carries nothing from his save or your settings. Turn off "Check
+  for updates automatically" and it only happens when you pick "Check for updates…". Run
+  from source, he never checks.
 - On Windows a small PowerShell helper runs alongside. Besides window positions it reports
   three things: the moment a key, click or scroll happens (not which), whether the window in
   front fills the screen, and the program name of that window, which is turned into a category

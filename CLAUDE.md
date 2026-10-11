@@ -4,14 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Clawd (package name `claude-buddy`): an Electron desktop pet (transparent, always-on-top window) that reacts to Claude Code hook events POSTed to a local HTTP server. Plain JavaScript, HTML and CSS; Electron is the only dependency. There is no build step, bundler, linter, type checker or test suite.
+Clawd (package name `claude-buddy`): an Electron desktop pet (transparent, always-on-top window) that reacts to Claude Code hook events POSTed to a local HTTP server. Plain JavaScript, HTML and CSS; Electron is the only runtime dependency besides `electron-updater`. There is no bundler, linter or type checker; `npm test` runs a few `node --test` files for the plain-Node modules (`*.test.js`).
 
 ## Commands
 
 ```bash
 npm install
 npm start          # electron .
+npm test           # node --test
+npm run dist       # Windows NSIS installer into dist/ (electron-builder.yml)
 ```
+
+Releases: pushing a `v*` tag matching `package.json`'s version runs `.github/workflows/release.yml` on Windows, which builds the installer and publishes it with `latest.yml` and the `.blockmap` (what `updater.js` reads). The installer's extra pages are `build/installer.nsh`; its first-run choices reach the app as `install-options.json` in userData (`install-options.js`), and the uninstaller runs `disconnect-hooks.js` from `resources/`.
 
 - The app holds a single-instance lock and the hook port. A second `npm start` only un-hides the running copy, so quit the running one (tray → Quit Clawd) before starting again to see changes to `main.js` or a preload. If the user has Clawd running to watch their own Claude Code sessions, this is the same instance.
 - `BUDDY_PORT` changes the port (default 8787). The URLs in `claude-settings-hooks.json` are hardcoded to 8787.
@@ -74,7 +78,7 @@ These are promises the README makes to users:
 - The server binds to loopback only, caps bodies at 256 KB, and never returns a hook decision.
 - Text from hooks, files and friend codes is untrusted: rendered with `textContent`, never as HTML; everything crossing IPC into main is type-checked and length-clipped.
 - The Windows helper reports only *that* input happened (keys, and clipboard changes by sequence number), window rectangles, and the foreground process name (reduced to a category; the one exception is an unknown fullscreen program, taken to be a game, whose tidied name reaches the renderer and the save as `life.games`). Never window titles (it looks at a browser's title only for a private-window marker), key identities or file contents. Two opt-in exceptions, both off by default: with "Listen to my music" on it reads the title, artist and source app of what is playing (only per-artist counts are saved, never titles); with "Notice which sites I'm on" on it reads the foreground browser's address bar and reports the host name only, which main reduces to a category and drops (the host never reaches the renderer or the save). For loud sounds it reads the output level meter and volume only: no audio is captured and the microphone is never opened. Dropped snacks are judged by file name and size only. The helper acts on the desktop only while "Let him mess with my desktop" is on (off by default), and then only by moving a window sideways or the pointer: never clicking, typing, resizing, focusing, minimising or closing, never a maximised or fullscreen window, never while a mouse button is held, and every shoved window is put back when he calms down, the setting goes off or the app quits.
-- Nothing leaves the machine. Friend codes are clipboard text.
+- Nothing about the user or Clawd leaves the machine. Friend codes are clipboard text. The one network request is the installed app's update check against GitHub Releases (`updater.js`, off with the `autoUpdate` setting, never when run from source).
 - Windows-only features (perching, focus, typing along, noticing, auto-quiet, the window and pointer side of meddling) are gated on `process.platform === 'win32'` and their menu items are disabled elsewhere.
 
 ## Conventions

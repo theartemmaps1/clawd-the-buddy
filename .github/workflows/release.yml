@@ -43,11 +43,22 @@ jobs:
       - name: Build Windows installer
         run: npx electron-builder --win --x64 --publish never
 
+      - name: Write checksum
+        shell: bash
+        run: |
+          cd dist
+          sha256sum Clawd-Setup-*.exe > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Upload installer as workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: clawd-installer
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+            dist/SHA256SUMS.txt
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -56,6 +67,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.exe \
+          # latest.yml and the .blockmap are what the installed app reads to find updates
+          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/*.exe.blockmap dist/latest.yml dist/SHA256SUMS.txt \
             --title "Clawd $GITHUB_REF_NAME" \
+            --notes-file .github/release-header.md \
             --generate-notes
