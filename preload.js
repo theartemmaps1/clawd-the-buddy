@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('buddy', {
   onFly: on('buddy-fly'),
   onBounce: on('buddy-bounce'),
   onLanded: on('buddy-landed'),
+  onBedMoved: on('buddy-bed-moved'),
   onFocusResult: on('buddy-focus-result'),
   onWear: on('buddy-wear'),
   onBall: on('buddy-ball'),

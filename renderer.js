@@ -1,6 +1,7 @@
 const bubble = document.getElementById('bubble');
 const svg = document.getElementById('buddy');
 const wrap = document.getElementById('wrap');
+const bedding = document.getElementById('bedding');
 const minis = document.getElementById('minis');
 const confettiBox = document.getElementById('confetti');
 let idleTimer, bubbleTimer, fxTimer;
@@ -64,6 +65,8 @@ let breakNagged = false;
 let bedOn = false;
 let goingToBed = false;
 let bedTried = false;
+let abed = null; // asleep in his bed: where the bed window is from his own, as the main process saw it
+const hand = { side: '', held: false, at: 0, timer: 0 }; // the hand the pointer is resting on: 'l' or 'r'
 let editingNote = false;
 let lastNuzzle = 0;
 let foodDragAt = 0; // last time something was being dragged over the window
@@ -148,7 +151,7 @@ const feel = {
 let mood = 'content';
 // the hook reactions and these mouse reactions have their own faces; mood stays out of the way
 const MOODLESS_STATES = ['happy', 'sad', 'alert'];
-const MOODLESS_FX = ['pet', 'spin', 'sleep', 'dizzy', 'hop', 'fly', 'fall', 'eat', 'want', 'yawn', 'stretch', 'hobby', 'jump', 'sit', 'twirl', 'dance', 'shake', 'surprise', 'quest', 'yuck', 'hide', 'hug', 'knock', 'eyeroll', 'tease', 'fidget', 'nod', 'ponder'];
+const MOODLESS_FX = ['hand', 'pet', 'spin', 'sleep', 'dizzy', 'hop', 'fly', 'fall', 'eat', 'want', 'yawn', 'stretch', 'hobby', 'jump', 'sit', 'twirl', 'dance', 'shake', 'surprise', 'quest', 'yuck', 'hide', 'hug', 'knock', 'eyeroll', 'tease', 'fidget', 'nod', 'ponder'];
 // temperament: what each personality feels more keenly, or less (a multiplier on whatever stirs the feeling up)
 const TEMPER = {
   sarcastic: { smug: 1.4, irritation: 1.2, thanks: 0.7 },
@@ -198,7 +201,9 @@ function render() {
   // a pet brings its own eyes, but the smile and blush he already had stay on
   const kept = fx === 'pet' && mood !== 'content' && !MOODLESS_STATES.includes(state);
   const ears = Date.now() < earsUntil && !['sleep', 'fly', 'fall', 'held', 'walk'].includes(fx);
-  document.body.className = state + (fx ? ' fx-' + fx : '') + (showMood ? ' mood-' + mood : '') + (kept ? ' kept-' + mood : '') + (sleepy ? ' night' : '') + (quiet ? ' quiet' : '') + (cry ? ' cry' : '') + (sulking ? ' sulk' : '') + (huddled ? ' cornered' : '') + (holdingPtr ? ' holding' : '') + (palOn ? ' pal' : '') + (ears ? ' ears' : '');
+  const lying = fx === 'sleep' && !!abed && bedOn;
+  document.body.className = state + (fx ? ' fx-' + fx : '') + (showMood ? ' mood-' + mood : '') + (kept ? ' kept-' + mood : '') + (sleepy ? ' night' : '') + (quiet ? ' quiet' : '') + (cry ? ' cry' : '') + (sulking ? ' sulk' : '') + (huddled ? ' cornered' : '') + (holdingPtr ? ' holding' : '') + (palOn ? ' pal' : '') + (ears ? ' ears' : '') + (lying ? ' abed' : '');
+  if (lying) layInBed();
   const d = document.body.dataset;
   d.prop = state === 'working' ? prop : '';
   d.focus = focusUntil ? '1' : '';
@@ -213,6 +218,7 @@ function render() {
   d.five = state === 'happy' && Date.now() < fiveUntil ? '1' : '';
   d.visiting = guest ? '1' : '';
   d.tune = tune && state === 'idle' && !fx && !quiet ? '1' : '';
+  d.hand = hand.held && (fx === 'hand' || fx === 'sleep') ? hand.side : '';
   // how his personality carries itself: `persona` the whole time, `manner` only while nothing else has his face
   const grown = ageIndex() > 0;
   const calm = grown && !fx && !showMood && !sleepy && !quiet && (state === 'idle' || state === 'thinking');
@@ -238,6 +244,7 @@ function setState(name) {
 
 function setFx(name, ms) {
   clearTimeout(fxTimer);
+  abed = null; // whatever he does next, he is up (the bed sets it again after putting him to sleep)
   // drop the class and force a reflow so repeating the same reaction replays its animation
   fx = '';
   render();
@@ -3362,6 +3369,7 @@ function writeDiary() {
       seen.peekaboo && 'We played peekaboo. They came back every single time.',
       seen.grateful && 'They looked after me right when I needed it. I won\'t forget.',
       seen.tucked && 'They carried me to bed and tucked me in.',
+      seen.hand && 'We held hands for a bit.',
       seen.homesick && 'I was up on a window for ages. I missed my own spot.',
       seen.helper >= 4 && `I sent ${seen.helper} helpers out and every one of them came back.`,
       seen.omen && belief && `I worked something out today: ${omenText(belief)}.`,
@@ -4577,7 +4585,7 @@ window.buddy.onBounce(() => {
   say(pick(['Boing!', 'Oof!', 'Ow!', 'Bonk!', 'Bounce!', 'Ouch-ish!']), 1200);
 });
 
-window.buddy.onLanded(({ impact, placed, perch, jump, down, bed }) => {
+window.buddy.onLanded(({ impact, placed, perch, jump, down, bed, lie }) => {
   if (dragging) return; // caught again before he settled
   perched = !!perch;
   if (down) {
@@ -4586,7 +4594,7 @@ window.buddy.onLanded(({ impact, placed, perch, jump, down, bed }) => {
     setFx(walking ? 'walk' : '', 0);
     return;
   }
-  if (bed && tuckedIn()) return; // carried to his bed and set down in it
+  if (bed && tuckedIn(lie)) return; // carried to his bed and set down in it
   if (jump) {
     // he meant to: no stars, and what he says next is about the window
     sfx('bounce');
@@ -4846,13 +4854,14 @@ window.buddy.onCursor(({ x, y, sx, sy, off }) => {
   }
 
   readCursor(now, sx);
+  handCursor(x, y);
 
   if (dragging || down || editingNote || now - foodDragAt < 1000) return;
   const el = document.elementFromPoint(x, y);
   // the box around the body counts too, so the gaps between his legs and arms don't let a
   // click or a dragged snack slip through
   const inBox = x > r.left + r.width * 0.1 && x < r.right - r.width * 0.1 && y > r.top + r.height * 0.22 && y < r.top + r.height * 0.84;
-  const hit = inBox || (!!el && (wrap.contains(el) || el === bubble || minis.contains(el) || palEl.contains(el) || el === noteEl || panel.contains(el) || signEl.contains(el) || visitorEl.contains(el)));
+  const hit = inBox || (!!el && (wrap.contains(el) || (!!abed && bedding.contains(el)) || el === bubble || minis.contains(el) || palEl.contains(el) || el === noteEl || panel.contains(el) || signEl.contains(el) || visitorEl.contains(el)));
   if (hit !== hovering) {
     hovering = hit;
     window.buddy.ignoreMouse(!hit);
@@ -5014,6 +5023,87 @@ function readCursor(now, sx) {
   }
 }
 
+// ---- holding hands: rest the pointer on one of his hands and he takes it ----
+
+const armEls = wrap.querySelectorAll('.arm > rect:not(.thumb)'); // his left (on screen) and right
+const HAND_LINES = ['Hand holding! ♥', 'Ooh, hi! *holds on*', 'This is nice.', 'Best. Pointer. Ever.'];
+const HAND_ASLEEP = ['*mumbles* …mm, don\'t go…', '*squeezes back in his sleep*', '…zzz… *holds on*'];
+PERSONA.sarcastic.hand = ['Oh. We\'re holding hands now. Cool. Cool cool.', 'Don\'t make it weird. …Okay, it\'s a little nice.', 'Fine. Only because your cursor looks cold.'];
+PERSONA.shy.hand = ['O-oh… *holds on very gently*', '*turns bright red*', 'Um… I don\'t mind. At all.'];
+PERSONA.dramatic.hand = ['At last! Our hands meet!', 'I shall never wash this hand again!', 'This is the most romantic moment of my LIFE.'];
+PERSONA.wise.hand = ['A hand held is a burden shared.', 'Mm. Steady.', 'Some things need no words.'];
+PERSONA.nerdy.hand = ['Pointer-hand contact established.', 'Fun fact: this lowers stress. Mine, anyway.', 'Handshake complete. TLS would be jealous.'];
+PERSONA.sleepy.hand = ['Mm… warm…', '*holds on and nods off a little*', 'Five more minutes. Like this.'];
+PERSONA.anxious.hand = ['Oh thank goodness. Don\'t let go?', 'Okay. Okay. This helps.', 'Is this okay? This is okay.'];
+BABY.hand = ['Hand! Hand!', '*grabs* Mine!', 'Eee! *squeeze*'];
+TEEN.hand = ['Ugh. …don\'t tell anyone.', 'Whatever. …you can stay.', 'This is so embarrassing. Don\'t stop.'];
+let lastHandBond = 0;
+
+// only when his hands are his own: not carried, walking, playing, or in the middle of a reaction
+const handFree = () => !dragging && !down && !walking && !chasing && !hiding && !rps && !guest && !editingNote
+  && (fx === 'sleep' ? !abed : ['', 'wave', 'look', 'peer', 'hand'].includes(fx));
+
+function handUnder(x, y) {
+  const slack = hand.held ? 14 : 4; // once he has hold of it, a wobble doesn't pull it away
+  for (const [i, side] of [[0, 'l'], [1, 'r']]) {
+    const b = armEls[i].getBoundingClientRect();
+    if (x > b.left - slack && x < b.right + slack && y > b.top - slack && y < b.bottom + slack) return side;
+  }
+  return '';
+}
+
+// The pointer is only reported while it moves, so resting on a hand is a timer that any move
+// off it cancels.
+function handCursor(x, y) {
+  const side = handFree() ? handUnder(x, y) : '';
+  if (side === hand.side) return;
+  clearTimeout(hand.timer);
+  if (hand.held) letGo();
+  hand.side = side;
+  if (side) hand.timer = setTimeout(takeHand, 900);
+}
+
+function takeHand() {
+  if (!hand.side || !handFree()) return;
+  const now = Date.now();
+  touch();
+  if (fx === 'sleep') {
+    // asleep, he holds on without waking up
+    hand.held = true;
+    hand.at = now;
+    render();
+    say(pick(HAND_ASLEEP), 2500);
+    return;
+  }
+  if (mood === 'hurt') {
+    // not ready to be touched yet; he won't try again until the pointer has gone and come back
+    setFx('poke', 350);
+    say(pick(['*pulls his hand away*', '…not yet.', 'Please don\'t.']), 2000);
+    return;
+  }
+  hand.held = true;
+  hand.at = now;
+  setFx('hand', 0);
+  did('hand');
+  bump('love', 0.15);
+  bump('lonely', -0.3);
+  bump('joy', 0.1);
+  if (now - lastHandBond > 10 * 60000) {
+    lastHandBond = now;
+    bondUp(0.3);
+  }
+  say(mood === 'grumpy' ? pick(['Hmph. …fine. Just this once.', '…don\'t tell anyone.'])
+    : mood === 'scared' ? pick(['Don\'t let go, okay?', 'Better. Much better.'])
+    : pick(voice().hand || HAND_LINES), 3000);
+}
+
+function letGo() {
+  hand.held = false;
+  if (fx !== 'hand') { render(); return; }
+  setFx('', 0);
+  if (Date.now() - hand.at > 4000) say(pick(['Aw. That was nice.', 'Again sometime?', '*waves the hand you held*']), 2000);
+}
+
 // ---- curiosity, play and little habits ----
 
 // with gravity he lives on the floor, so only sideways distance matters
@@ -5067,6 +5157,8 @@ window.buddy.onWalkDone((at) => {
     perched = false;
     feel.homesick = 0;
     setFx('sleep', 0);
+    abed = (at && at.bed) || null; // got all the way into it
+    render();
     nextDream = Date.now() + 20000 + Math.random() * 30000;
     return;
   }
@@ -5086,6 +5178,7 @@ window.buddy.onSettings((s) => {
   gravity = !!s.gravity;
   soundOn = !!s.sound;
   bedOn = !!s.bed;
+  if (!bedOn) abed = null;
   typeAlong = s.typing !== false;
   loudOn = s.loud !== false;
   remindersOn = s.reminders !== false;
@@ -5664,7 +5757,7 @@ function putToBed() {
 // goes to sleep, as with "Put him to bed" but with no walk. Carried while asleep, he nods off
 // again. False when he is in the middle of something he can't drop; then it was only a
 // landing like any other.
-function tuckedIn() {
+function tuckedIn(lie) {
   if (rps || guest || gift || asking || editingNote) return false;
   bedTried = true; // the nightly walk to bed is done: this is it
   away = walking = returning = stalking = cornering = inching = goingToBed = false;
@@ -5681,9 +5774,33 @@ function tuckedIn() {
     : pick(['Oh, my bed. Thank you.', '*yawn* Tuck me in?', 'Mmh… goodnight!', 'Carried and tucked in. Nice service.']), 2500);
   sfx('yawn'); // before he is asleep: nothing sounds while he is
   setFx('sleep', 0);
+  abed = lie || null;
+  render();
   nextDream = Date.now() + 20000 + Math.random() * 30000;
   return true;
 }
+
+// Lying in bed. The bed is a window of its own behind his, so he and the covers over him are
+// drawn here, in the bed's pixels and lined up with it; his z's and dreams move over his head.
+function layInBed() {
+  const r = svg.getBoundingClientRect();
+  const k = r.width / 200; // SVG units -> CSS px
+  bedding.setAttribute('transform', `translate(${((abed.x - r.left) / k).toFixed(1)} ${((abed.y - r.top) / k).toFixed(1)}) scale(${(1 / k).toFixed(4)})`);
+  // smaller while he is young (or quiet), his head kept on the pillow
+  const grown = (r.width / 150).toFixed(3);
+  for (const g of bedding.querySelectorAll('.lying')) g.setAttribute('transform', `translate(90 120) scale(${grown}) translate(-90 -120)`);
+  document.body.style.setProperty('--bed-x', `${((abed.x + 112 - r.left) / k - 150).toFixed(1)}px`);
+  document.body.style.setProperty('--bed-y', `${((abed.y + 74 - r.top) / k - 55).toFixed(1)}px`);
+}
+
+// The bed was picked up with him in it.
+window.buddy.onBedMoved(() => {
+  if (fx !== 'sleep' || !abed) return;
+  touch();
+  bump('fear', 0.15);
+  setFx('surprise', 900);
+  say(pick(['Hey! I was sleeping in that!', 'Whoa— earthquake?!', '*tumbles out* …rude.', 'Where are we going? I was asleep!']), 2500, true);
+});
 
 // Nod off after a couple of quiet minutes (much sooner when tired or late); any hook event or
 // poke wakes him. Asleep, he mumbles now and then.

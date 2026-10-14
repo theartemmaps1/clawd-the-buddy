@@ -160,6 +160,10 @@ enough of it; a teenager is far too old for it.
   looked at; bigger files are more filling. He loves plain words, sniffs programs
   suspiciously, finds office documents dry, and has one favourite food that you have to
   discover by feeding him.
+- **Holding hands.** Rest the pointer on one of his hands for a moment and he takes it: that
+  hand comes up to meet the pointer, he leans in and blushes, and each personality has
+  something to say about it. Move away and he lets go. He holds on in his sleep too, without
+  waking. Hurt, he pulls his hand back until he feels better.
 - **Gravity.** With gravity on he falls, bounces, and lands on the top edges of other windows,
   where he rides along (Windows only).
 - **Play.** "Throw a ball" gives you a ball to fling, and he chases it. There is also rock,
@@ -355,7 +359,9 @@ something from the day: a green tick, a bug, a file, a commit, a snack, the ball
   2500 finished tasks, and glasses (worn with any hat) at 200. The seasons dress him too: a
   scarf in winter, a flower in spring, sunglasses in summer, a leaf in autumn, plus a Santa
   hat and a pumpkin on their dates. Set `southern` in the config for the other hemisphere.
-- **A room.** Turn on "Bed" under Room and drag it where you like; he walks there to sleep.
+- **A room.** Turn on "Bed" under Room and drag it where you like; he walks there to sleep,
+  or carry him over and let go. In bed he lies down under the covers with his head on the
+  pillow until something wakes him. Move the bed with him in it and he tumbles out.
   The corner fills up as achievements come in: rug, plant, lamp, poster, trophy shelf, fairy
   lights. You can put things away from the Room menu.
 - **Photo album.** A card for every milestone (unlocks, streaks, friendship levels, badges,

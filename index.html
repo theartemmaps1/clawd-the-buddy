@@ -523,6 +523,30 @@
 
   .fx-spin #wrap, .fx-sleep #wrap, .fx-dizzy #wrap, .fx-fly #wrap { rotate: 0deg; }
 
+  /* asleep in his bed: drawn lying under the covers instead, in the bed's own pixels
+     (renderer.js lines it up with the bed window); only his z's and dreams stay, over his head */
+  #bedding { display: none; }
+  .abed #bedding { display: block; }
+  .abed #wrap > :not(.zz):not(.dream) { display: none; }
+  .abed #wrap { translate: var(--bed-x, 0px) var(--bed-y, 0px); }
+  .breath { transform-box: fill-box; transform-origin: bottom; animation: breathe 4s ease-in-out infinite; }
+
+  /* holding hands: the hand you rest the pointer on comes up to meet it, and he beams */
+  .thumb { display: none; }
+  .arm rect { transition: translate .2s; }
+  body[data-hand="l"] .thumb-l, body[data-hand="r"] .thumb-r { display: block; }
+  body[data-hand="l"] .arm > rect:first-child, body[data-hand="l"] .thumb-l,
+  body[data-hand="r"] .armR, body[data-hand="r"] .thumb-r { translate: 0 -8px; }
+  .fx-hand #wrap  { animation: bob 2.4s ease-in-out infinite; rotate: var(--hand-lean, 0deg); }
+  body[data-hand="l"] { --hand-lean: -4deg; }
+  body[data-hand="r"] { --hand-lean: 4deg; }
+  .fx-hand .eye   { opacity: 0; }
+  .fx-hand .eye-happy { opacity: 1; }
+  .fx-hand .blush { opacity: .85; }
+  .fx-hand .lid, .fx-hand #sweat { opacity: 0; }
+  .fx-hand #heart { animation: float 1.6s ease-out 1; }
+  body[data-hand="l"].fx-sleep .blush, body[data-hand="r"].fx-sleep .blush { opacity: .5; } /* he knows, even asleep */
+
   /* curiosity */
   .fx-peer #wrap  { animation: peer 2.5s ease-in-out; rotate: calc(var(--tilt, 0deg) * 2.5); }
   .fx-peer .eye   { animation: none; transform: scaleY(1.35); }
@@ -686,7 +710,7 @@
       <g class="skin">
         <g class="legA"><rect x="50" y="130" width="10" height="30" /><rect x="120" y="130" width="10" height="30" /></g>
         <g class="legB"><rect x="70" y="130" width="10" height="30" /><rect x="140" y="130" width="10" height="30" /></g>
-        <g class="arm"><rect x="20" y="90" width="20" height="20" /><rect class="armR" x="160" y="90" width="20" height="20" /></g>
+        <g class="arm"><rect x="20" y="90" width="20" height="20" /><rect class="armR" x="160" y="90" width="20" height="20" /><rect class="thumb thumb-l" x="34" y="84" width="6" height="6" /><rect class="thumb thumb-r" x="160" y="84" width="6" height="6" /></g>
         <rect x="40" y="60" width="120" height="70" />
       </g>
       <rect class="eye" x="70" y="80" width="10" height="20" />
@@ -889,6 +913,18 @@
         <rect x="5" y="15" width="25" height="5" /><rect x="10" y="20" width="15" height="5" /><rect x="15" y="25" width="5" height="5" />
       </g></g>
       <text class="zz ghost" x="150" y="55">z</text><text class="zz ghost" x="166" y="38">z</text>
+    </g>
+    <!-- in bed: lying on his back with his head on the pillow, drawn on the bed's 5px grid -->
+    <g id="bedding">
+      <g class="lying"><g class="breath">
+        <rect class="skin" x="90" y="85" width="55" height="35" />
+        <rect x="98" y="92" width="9" height="3" fill="#1f1410" />
+      </g></g>
+      <g class="quilt">
+        <rect x="118" y="98" width="32" height="42" fill="#4a60bd" /><rect x="150" y="105" width="70" height="35" fill="#4a60bd" /><rect x="170" y="100" width="15" height="5" fill="#4a60bd" />
+        <rect x="118" y="98" width="32" height="3" fill="#7f93e6" /><rect x="150" y="105" width="20" height="3" fill="#7f93e6" /><rect x="170" y="100" width="15" height="3" fill="#7f93e6" /><rect x="185" y="105" width="35" height="3" fill="#7f93e6" />
+      </g>
+      <g class="lying"><rect class="skin" x="121" y="103" width="24" height="7" /></g>
     </g>
   </svg>
 <script src="renderer.js"></script>

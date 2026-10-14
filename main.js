@@ -1080,9 +1080,10 @@ function stepWalk() {
     const back = walk.perch;
     const then = walk.then;
     const corner = walk.corner;
+    const bed = walk.bed;
     walk = null;
     if (back) { perch = back; followPerch(); } // home was on top of a window
-    send('buddy-walk-done', corner ? { corner } : undefined);
+    send('buddy-walk-done', corner ? { corner } : bed ? { bed: bedSpot() } : undefined);
     if (then) then(); // he came over here to do something
   }
   checkPerchEdge();
@@ -1220,7 +1221,12 @@ function trackCursor() {
       if (++ticks % 12 === 0) send('buddy-ball', ballState());
     }
     if (bedDrag && bedWin && !bedWin.isDestroyed()) {
+      const was = bedWin.getBounds();
       bedWin.setBounds({ x: c.x - bedDrag.x, y: c.y - bedDrag.y, width: BED_W, height: BED_H });
+      if (!bedDrag.moved && (was.x !== c.x - bedDrag.x || was.y !== c.y - bedDrag.y)) {
+        bedDrag.moved = true;
+        send('buddy-bed-moved'); // if he was asleep in it, he isn't any more
+      }
     }
     const b = win.getBounds();
     const rel = { x: c.x - b.x, y: c.y - b.y, sx: c.x, sy: c.y };
@@ -1265,7 +1271,7 @@ function endDrag() {
   if (spot) {
     walk = {
       x: b.x, y: b.y, tx: spot.x, ty: spot.y, step: 6, setHome: true,
-      then: () => send('buddy-landed', { impact: 0, bounces: 0, placed: true, bed: !!bedWin && !bedWin.isDestroyed() }),
+      then: () => send('buddy-landed', { impact: 0, bounces: 0, placed: true, bed: !!bedWin && !bedWin.isDestroyed(), lie: bedSpot() }),
     };
     win.moveTop();
     return;
@@ -1438,6 +1444,18 @@ function bedDrop(b, speed) {
   };
 }
 
+// Where the bed is, seen from his own window, so he can be drawn lying in it. Null when there
+// is no bed or it is not right under him (his window is the only place he can be drawn).
+function bedSpot() {
+  if (!settings.bed || !bedWin || bedWin.isDestroyed() || !win || win.isDestroyed()) return null;
+  const bed = bedWin.getBounds();
+  const b = win.getBounds();
+  const x = bed.x - b.x;
+  const y = bed.y - b.y;
+  if (Math.abs(x + (BED_W - WIN_W) / 2) > 16 || y < WIN_H - BED_H - 60 || y > WIN_H - BED_H + 20) return null;
+  return { x, y };
+}
+
 // While he is carried over the bed it outlines itself: let go, and he is tucked in.
 function inviteBed(on) {
   if (on === bedInvited) return;
@@ -1504,8 +1522,8 @@ ipcMain.on('buddy-go-bed', () => {
     const tx = bed.x + BED_W / 2 - WIN_W / 2;
     // with gravity he stays on his own level; without, he floats over and settles into the bed
     const ty = settings.gravity ? b.y : bed.y + BED_H - (WIN_H - FOOT_PAD) - 6;
-    if (Math.hypot(tx - b.x, ty - b.y) < 12) return send('buddy-walk-done');
-    walk = { x: b.x, y: b.y, tx, ty, setHome: true };
+    if (Math.hypot(tx - b.x, ty - b.y) < 12) return send('buddy-walk-done', { bed: bedSpot() });
+    walk = { x: b.x, y: b.y, tx, ty, setHome: true, bed: true };
     win.moveTop();
   };
   // up on a window he gets down first: walking along it he would drop off the edge halfway
